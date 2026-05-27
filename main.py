@@ -37,19 +37,56 @@ RSS_SOURCES = [
 ]
 
 
+BREAKING_KEYWORDS = [
+    "大规模封号",
+    "批量封号",
+    "大规模封禁",
+    "全线失效",
+    "全部失效",
+    "大面积异常",
+    "登录失败",
+    "无法登录",
+    "OAuth 失效",
+    "refresh token 失效",
+    "access token 失效",
+    "refresh_token 失效",
+    "access_token 失效",
+    "401 unauthorized",
+    "403 forbidden",
+    "outage",
+    "degraded",
+    "incident",
+    "stream disconnected",
+    "weekly limit",
+    "quota drained",
+    "学生包取消",
+    "Plus 下线",
+    "Pro 限制",
+    "短信验证",
+    "接码失败",
+    "text message verification",
+]
+
 HIGH_KEYWORDS = [
     "Codex", "Plus", "Pro", "封号", "被封", "冻结", "禁用", "风控",
     "接码", "短信", "手机号", "text message", "verification",
     "OAuth", "accessToken", "access token", "refresh_token",
     "refresh token", "401", "403", "rate limit", "quota",
     "限流", "额度", "学生包", "Claude Code", "HERMES.md",
-    "billing", "refund", "账号", "下线", "失效", "风控收紧"
+    "billing", "refund", "账号", "下线", "失效", "风控收紧",
+    "验证码", "短信验证", "接码失败", "账号池", "共享号",
+    "Sub2API", "CPA", "Cockpit", "Codex Manager", "9router",
+    "AxonHub", "passkey", "MFA", "OAuth 失效", "refresh token 失效",
+    "access token 失效", "401 unauthorized", "403 forbidden",
+    "outage", "degraded", "incident", "stream disconnected",
+    "weekly limit", "5h额度", "quota drained"
 ]
 
 MEDIUM_KEYWORDS = [
     "OpenAI", "ChatGPT", "Claude", "Anthropic", "Gemini",
     "Antigravity", "GitHub Copilot", "xAI", "GPU", "API",
-    "model", "模型", "算力", "订阅", "额度提升", "价格", "AI"
+    "model", "模型", "算力", "订阅", "额度提升", "价格", "AI",
+    "Cursor", "Windsurf", "DeepSeek", "Qwen", "Llama"
 ]
 
 
@@ -65,7 +102,7 @@ def load_seen():
 
 def save_seen(seen):
     SEEN_FILE.write_text(
-        json.dumps(list(seen)[-800:], ensure_ascii=False, indent=2),
+        json.dumps(list(seen)[-1000:], ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
 
@@ -81,6 +118,8 @@ def contains_keyword(text, keywords):
 
 
 def get_level(text):
+    if contains_keyword(text, BREAKING_KEYWORDS):
+        return "爆炸"
     if contains_keyword(text, HIGH_KEYWORDS):
         return "高"
     if contains_keyword(text, MEDIUM_KEYWORDS):
@@ -89,6 +128,8 @@ def get_level(text):
 
 
 def level_icon(level):
+    if level == "爆炸":
+        return "🚨"
     if level == "高":
         return "🔴"
     if level == "中":
@@ -120,7 +161,9 @@ def fetch_feed(url):
 
 
 def fallback_message(title, summary, source, link, level):
-    return f"""📌【{short_text(title, 120)}】
+    prefix = "🚨【爆炸新闻】" if level == "爆炸" else "📌【情报】"
+
+    return f"""{prefix}{short_text(title, 120)}
 
 {level_icon(level)} 兴趣等级：{level}
 
@@ -165,13 +208,29 @@ def deepseek_summarize(title, summary, source, link, level):
 4. 中文输出，短句优先，适合 Telegram / 飞书阅读。
 5. 不要输出 Markdown 表格。
 6. 不要输出代码块。
+7. 如果原文只是单点反馈，必须写“单点反馈 / 未确认”。
+8. 如果来源是官方状态页或官方仓库 issue，可以写“公开来源较可靠”，但不要夸大。
 """
 
     user_prompt = f"""请把下面信息整理成固定格式：
 
-📌【标题】一句话标题，保留重点
+如果内容涉及封号、401、403、OAuth失效、refresh_token失效、access_token失效、Codex大面积异常、OpenAI outage、Plus/Pro异常、学生包取消、接码异常，请标题前加：
+🚨【爆炸新闻】
 
+如果只是普通 AI 新闻，请标题前加：
+📌【情报】
+
+标题要求：
+- 一句话标题，保留重点
+- 不要标题党
+- 不要编造原文没有的结论
+
+兴趣等级：
 {level_icon(level)} 兴趣等级：{level}
+
+固定输出格式：
+
+【标题】
 
 📝 变化：
 - 用 1-3 条写清楚发生了什么
@@ -223,7 +282,12 @@ def deepseek_summarize(title, summary, source, link, level):
             return fallback_message(title, summary, source, link, level)
 
         data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+        content = data["choices"][0]["message"]["content"].strip()
+
+        if f"兴趣等级：{level}" not in content:
+            content = f"{level_icon(level)} 兴趣等级：{level}\n\n{content}"
+
+        return content
 
     except Exception as e:
         print("DeepSeek exception:", e)
@@ -266,6 +330,9 @@ def main():
     seen = load_seen()
     new_seen = set(seen)
     sent_count = 0
+    max_send_count = 5
+
+    candidates = []
 
     for rss_url in RSS_SOURCES:
         feed = fetch_feed(rss_url)
@@ -275,7 +342,7 @@ def main():
 
         source = feed.feed.get("title", rss_url)
 
-        for entry in feed.entries[:8]:
+        for entry in feed.entries[:10]:
             title = entry.get("title", "")
             link = entry.get("link", "")
             summary = entry.get("summary", "") or entry.get("description", "")
@@ -285,7 +352,7 @@ def main():
 
             text = f"{title} {summary}"
 
-            if not contains_keyword(text, HIGH_KEYWORDS + MEDIUM_KEYWORDS):
+            if not contains_keyword(text, BREAKING_KEYWORDS + HIGH_KEYWORDS + MEDIUM_KEYWORDS):
                 continue
 
             uid = item_id(title, link)
@@ -294,22 +361,49 @@ def main():
                 continue
 
             level = get_level(text)
-            message = deepseek_summarize(title, summary, source, link, level)
 
-            success = send_feishu(message)
+            priority = {
+                "爆炸": 0,
+                "高": 1,
+                "中": 2,
+                "低": 3,
+            }.get(level, 3)
 
-            if success:
-                sent_count += 1
+            candidates.append({
+                "priority": priority,
+                "uid": uid,
+                "level": level,
+                "title": title,
+                "summary": summary,
+                "source": source,
+                "link": link,
+            })
 
-            new_seen.add(uid)
-            time.sleep(3)
+    candidates.sort(key=lambda item: item["priority"])
 
-            if sent_count >= 5:
-                save_seen(new_seen)
-                print(f"Sent {sent_count} messages.")
-                return
+    for item in candidates:
+        message = deepseek_summarize(
+            item["title"],
+            item["summary"],
+            item["source"],
+            item["link"],
+            item["level"],
+        )
+
+        success = send_feishu(message)
+
+        new_seen.add(item["uid"])
+
+        if success:
+            sent_count += 1
+
+        time.sleep(3)
+
+        if sent_count >= max_send_count:
+            break
 
     save_seen(new_seen)
+    print(f"Candidates: {len(candidates)}")
     print(f"Sent {sent_count} messages.")
 
 
