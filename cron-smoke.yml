@@ -1,0 +1,79 @@
+name: Cron Smoke Test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/cron-smoke.yml"
+
+  workflow_dispatch:
+
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Show trigger info
+        run: |
+          echo "event_name=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "repository=${{ github.repository }}"
+          echo "workflow=${{ github.workflow }}"
+          echo "sha=${{ github.sha }}"
+          date -u
+
+      - name: Send Feishu smoke message
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import urllib.request
+          from datetime import datetime, timezone, timedelta
+
+          webhook = os.environ.get("FEISHU_WEBHOOK", "")
+
+          print("FEISHU_WEBHOOK set:", bool(webhook))
+          print("FEISHU_WEBHOOK length:", len(webhook))
+
+          if not webhook:
+              raise SystemExit("FEISHU_WEBHOOK is empty")
+
+          bj_time = datetime.now(timezone.utc) + timedelta(hours=8)
+
+          text = (
+              "✅ GitHub Actions Cron Smoke Test\\n"
+              f"event_name=${{ github.event_name }}\\n"
+              f"workflow=${{ github.workflow }}\\n"
+              f"repo=${{ github.repository }}\\n"
+              f"北京时间={bj_time.strftime('%Y-%m-%d %H:%M:%S')}\\n"
+              "如果这条是自动出现，说明 schedule 定时触发已经正常。"
+          )
+
+          payload = {
+              "msg_type": "text",
+              "content": {
+                  "text": text
+              }
+          }
+
+          req = urllib.request.Request(
+              webhook,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              body = resp.read().decode("utf-8", errors="replace")
+              print("Feishu status:", resp.status)
+              print("Feishu body:", body[:500])
+          PY
