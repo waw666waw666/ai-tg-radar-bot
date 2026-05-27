@@ -1,7 +1,16 @@
 name: AI Feishu Radar Bot
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ai-radar.yml"
+      - "main.py"
+      - "requirements.txt"
+
   workflow_dispatch:
+
   schedule:
     - cron: "40 * * * *"
 
@@ -17,8 +26,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Show trigger info
+        run: |
+          echo "event_name=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "repository=${{ github.repository }}"
+          echo "workflow=${{ github.workflow }}"
+          echo "sha=${{ github.sha }}"
+          date -u
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Show workflow file
+        run: |
+          echo "===== .github/workflows/ai-radar.yml ====="
+          sed -n '1,120p' .github/workflows/ai-radar.yml
+          echo "===== end ====="
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -48,6 +72,7 @@ jobs:
         run: python main.py
 
       - name: Commit seen cache
+        if: github.event_name != 'push'
         run: |
           git config user.name "ai-radar-bot"
           git config user.email "ai-radar-bot@users.noreply.github.com"
