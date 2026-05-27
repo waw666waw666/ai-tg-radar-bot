@@ -2,11 +2,15 @@ name: AI Feishu Radar Bot
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: ai-feishu-radar-bot
+  cancel-in-progress: true
 
 jobs:
   run-bot:
