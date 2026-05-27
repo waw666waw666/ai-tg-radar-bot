@@ -8,28 +8,34 @@ import requests
 import feedparser
 
 
-DEEPSEEK_API_KEY = os.environ.get("sk-bb9c971e44414d73808e0b64f2e2fc3a", "")
-FEISHU_WEBHOOK = os.environ.get("https://open.feishu.cn/open-apis/bot/v2/hook/9a81d0a7-7895-419d-9455-9df86f42fd58", "")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK", "")
 
 SEEN_FILE = Path("seen.json")
+
 
 RSS_SOURCES = [
     "https://linux.do/latest.rss",
     "https://linux.do/top.rss",
     "https://linux.do/posts.rss",
+
     "https://status.openai.com/history.rss",
     "https://github.com/openai/codex/issues.atom",
+
     "https://www.reddit.com/r/ClaudeAI/search.rss?q=Claude%20Code%20OR%20HERMES.md%20OR%20billing%20OR%20refund&restrict_sr=1&sort=new",
     "https://www.reddit.com/r/OpenAI/search.rss?q=Codex%20OR%20rate%20limit%20OR%20banned%20OR%20suspended%20OR%20verification&restrict_sr=1&sort=new",
     "https://www.reddit.com/r/ChatGPT/search.rss?q=Plus%20OR%20banned%20OR%20suspended%20OR%20verification%20OR%20text%20message&restrict_sr=1&sort=new",
     "https://www.reddit.com/r/GitHubCopilot/search.rss?q=student%20OR%20model%20OR%20Codex%20OR%20Claude&restrict_sr=1&sort=new",
+
     "https://hnrss.org/newest?q=OpenAI",
     "https://hnrss.org/newest?q=Claude",
     "https://hnrss.org/newest?q=Codex",
     "https://hnrss.org/newest?q=Gemini",
+
     "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
     "https://huggingface.co/blog/feed.xml",
 ]
+
 
 HIGH_KEYWORDS = [
     "Codex", "Plus", "Pro", "封号", "被封", "冻结", "禁用", "风控",
@@ -37,19 +43,20 @@ HIGH_KEYWORDS = [
     "OAuth", "accessToken", "access token", "refresh_token",
     "refresh token", "401", "403", "rate limit", "quota",
     "限流", "额度", "学生包", "Claude Code", "HERMES.md",
-    "billing", "refund"
+    "billing", "refund", "账号", "下线", "失效", "风控收紧"
 ]
 
 MEDIUM_KEYWORDS = [
     "OpenAI", "ChatGPT", "Claude", "Anthropic", "Gemini",
     "Antigravity", "GitHub Copilot", "xAI", "GPU", "API",
-    "model", "模型", "算力", "订阅"
+    "model", "模型", "算力", "订阅", "额度提升", "价格", "AI"
 ]
 
 
 def load_seen():
     if not SEEN_FILE.exists():
         return set()
+
     try:
         return set(json.loads(SEEN_FILE.read_text(encoding="utf-8")))
     except Exception:
@@ -91,13 +98,18 @@ def level_icon(level):
 
 def short_text(text, limit=2500):
     text = " ".join((text or "").replace("\n", " ").split())
+
     if len(text) <= limit:
         return text
+
     return text[:limit] + "..."
 
 
 def fetch_feed(url):
-    headers = {"User-Agent": "Mozilla/5.0 AI-Radar-Bot/1.0"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/1.0"
+    }
+
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
@@ -135,6 +147,7 @@ def fallback_message(title, summary, source, link, level):
 
 def deepseek_summarize(title, summary, source, link, level):
     if not DEEPSEEK_API_KEY:
+        print("DEEPSEEK_API_KEY not set, use fallback message.")
         return fallback_message(title, summary, source, link, level)
 
     raw_content = short_text(
@@ -142,7 +155,7 @@ def deepseek_summarize(title, summary, source, link, level):
         3500
     )
 
-    system_prompt = """你是一个 Telegram / 飞书 AI情报频道的中文编辑。
+    system_prompt = """你是一个 Telegram / 飞书 AI 情报频道的中文编辑。
 你的任务是把公开 RSS、社区帖子、新闻源内容，总结成简短、清晰、像情报卡片一样的中文推送。
 
 要求：
@@ -220,7 +233,7 @@ def deepseek_summarize(title, summary, source, link, level):
 def send_feishu(message):
     if not FEISHU_WEBHOOK:
         print("FEISHU_WEBHOOK not set, skip Feishu.")
-        return
+        return False
 
     payload = {
         "msg_type": "text",
@@ -231,19 +244,32 @@ def send_feishu(message):
 
     try:
         response = requests.post(FEISHU_WEBHOOK, json=payload, timeout=30)
+        print("Feishu status:", response.status_code)
+        print("Feishu body:", response.text[:500])
+
         if response.status_code != 200:
             print("Feishu send failed:", response.status_code, response.text[:500])
+            return False
+
+        return True
+
     except Exception as e:
         print("Feishu exception:", e)
+        return False
 
 
 def main():
+    print("DEEPSEEK_API_KEY set:", bool(DEEPSEEK_API_KEY))
+    print("FEISHU_WEBHOOK set:", bool(FEISHU_WEBHOOK))
+    print("FEISHU_WEBHOOK length:", len(FEISHU_WEBHOOK))
+
     seen = load_seen()
     new_seen = set(seen)
     sent_count = 0
 
     for rss_url in RSS_SOURCES:
         feed = fetch_feed(rss_url)
+
         if not feed:
             continue
 
@@ -263,16 +289,19 @@ def main():
                 continue
 
             uid = item_id(title, link)
+
             if uid in seen:
                 continue
 
             level = get_level(text)
             message = deepseek_summarize(title, summary, source, link, level)
 
-            send_feishu(message)
+            success = send_feishu(message)
+
+            if success:
+                sent_count += 1
 
             new_seen.add(uid)
-            sent_count += 1
             time.sleep(3)
 
             if sent_count >= 5:
