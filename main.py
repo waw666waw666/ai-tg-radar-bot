@@ -17,10 +17,14 @@ SEEN_FILE = Path("seen.json")
 
 
 RSS_SOURCES = [
-    # 中文社区 / 情报源
+    # 中文社区 / 高价值情报源
     "https://linux.do/latest.rss",
     "https://linux.do/top.rss",
     "https://linux.do/posts.rss",
+
+    # AIHOT：只加精选和日报，不加 all，避免刷屏
+    "https://aihot.virxact.com/feed.xml",
+    "https://aihot.virxact.com/feed/daily.xml",
 
     # 官方状态 / Codex
     "https://status.openai.com/history.rss",
@@ -38,13 +42,13 @@ RSS_SOURCES = [
     "https://hnrss.org/newest?q=Codex",
     "https://hnrss.org/newest?q=Gemini",
 
-    # 泛 AI 新闻
+    # 泛 AI 新闻，权重较低
     "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
     "https://huggingface.co/blog/feed.xml",
 ]
 
 
-# 直接屏蔽：不感兴趣 / 低价值 / 容易刷屏
+# 直接屏蔽：命中就不推
 BLOCK_KEYWORDS = [
     "AI art",
     "AI image",
@@ -79,7 +83,7 @@ BLOCK_KEYWORDS = [
     "研究人员提出",
     "招聘",
     "岗位",
-    "裁员以外的普通招聘",
+    "普通招聘",
     "营销",
     "推广",
     "邀请码",
@@ -90,16 +94,16 @@ BLOCK_KEYWORDS = [
 ]
 
 
-# 爆炸关键词：命中后会大幅加分，但不会无脑爆炸，还会结合来源/多人反馈/核心主题
-BREAKING_KEYWORDS = [
+# 爆炸事件词：严重异常、封号、全线失效、官方 outage
+CRITICAL_EVENT_KEYWORDS = [
     "大规模封号",
     "批量封号",
     "大规模封禁",
     "全线失效",
     "全部失效",
     "大面积异常",
-    "登录失败",
     "无法登录",
+    "登录失败",
     "OAuth 失效",
     "refresh token 失效",
     "access token 失效",
@@ -127,11 +131,14 @@ BREAKING_KEYWORDS = [
     "account terminated",
     "account suspended",
     "account disabled",
+    "account banned",
+    "banned",
+    "suspended",
 ]
 
 
-# 高兴趣：账号、风控、Codex、Plus、Claude Code、OAuth
-HIGH_KEYWORDS = [
+# 你最关心的核心主题
+CORE_TOPIC_KEYWORDS = [
     "Codex",
     "Plus",
     "Pro",
@@ -188,8 +195,8 @@ HIGH_KEYWORDS = [
 ]
 
 
-# 中兴趣：普通 AI 产品 / 模型 / 算力
-MEDIUM_KEYWORDS = [
+# 中等兴趣：普通 AI 产品、模型、工具
+MEDIUM_TOPIC_KEYWORDS = [
     "OpenAI",
     "ChatGPT",
     "Claude",
@@ -211,10 +218,12 @@ MEDIUM_KEYWORDS = [
     "DeepSeek",
     "Qwen",
     "Llama",
+    "agent",
+    "MCP",
 ]
 
 
-# 低价值泛新闻：不是完全屏蔽，但降权
+# 低价值泛新闻：不直接屏蔽，但降权
 LOW_VALUE_KEYWORDS = [
     "CEO",
     "采访",
@@ -231,10 +240,11 @@ LOW_VALUE_KEYWORDS = [
     "产品发布",
     "新功能",
     "博客",
+    "榜单",
 ]
 
 
-# 单点反馈词：自动降级，避免把小样本当爆炸新闻
+# 单点反馈：降权，避免把小样本当大事件
 SINGLE_REPORT_KEYWORDS = [
     "单点反馈",
     "单人反馈",
@@ -253,10 +263,11 @@ SINGLE_REPORT_KEYWORDS = [
     "unconfirmed",
     "seems",
     "maybe",
+    "appears",
 ]
 
 
-# 多人反馈词：提高权重
+# 多人反馈 / 官方确认：升权
 MULTI_REPORT_KEYWORDS = [
     "多人反馈",
     "多位用户",
@@ -265,38 +276,13 @@ MULTI_REPORT_KEYWORDS = [
     "批量",
     "普遍",
     "集中反馈",
+    "官方确认",
+    "已确认",
+    "confirmed",
     "confirmed by multiple",
     "many users",
     "multiple users",
     "widespread",
-]
-
-
-# 必须关注主题：这些组合出现时更值得推送
-CORE_TOPICS = [
-    "401",
-    "403",
-    "OAuth",
-    "refresh token",
-    "access token",
-    "Codex",
-    "Claude Code",
-    "Plus",
-    "Pro",
-    "Team",
-    "Free",
-    "封号",
-    "被封",
-    "接码",
-    "短信验证",
-    "rate limit",
-    "quota",
-    "weekly limit",
-    "学生包",
-    "GitHub Copilot",
-    "Sub2API",
-    "CPA",
-    "Cockpit",
 ]
 
 
@@ -312,7 +298,7 @@ def load_seen():
 
 def save_seen(seen):
     SEEN_FILE.write_text(
-        json.dumps(list(seen)[-1500:], ensure_ascii=False, indent=2),
+        json.dumps(list(seen)[-1800:], ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
 
@@ -323,6 +309,10 @@ def normalize_text(text):
 
 def clean_html(text):
     text = re.sub(r"<[^>]+>", " ", text or "")
+    text = re.sub(r"&nbsp;", " ", text)
+    text = re.sub(r"&amp;", "&", text)
+    text = re.sub(r"&lt;", "<", text)
+    text = re.sub(r"&gt;", ">", text)
     return normalize_text(text)
 
 
@@ -341,14 +331,14 @@ def item_id(title, link):
 
 
 def text_signature(title):
-    title = title.lower()
+    title = clean_html(title).lower()
     title = re.sub(r"https?://\S+", "", title)
     title = re.sub(r"[\W_]+", " ", title)
     title = re.sub(r"\s+", " ", title).strip()
     return title
 
 
-def is_similar_title(title, existing_titles, threshold=0.82):
+def is_similar_title(title, existing_titles, threshold=0.84):
     sig = text_signature(title)
 
     for old_title in existing_titles:
@@ -375,44 +365,92 @@ def matched_keywords(text, keywords):
     return [k for k in keywords if k.lower() in lower]
 
 
-def get_source_weight(source, rss_url):
+def get_source_profile(source, rss_url):
     text = f"{source} {rss_url}".lower()
 
     if "status.openai.com" in text:
-        return 5
+        return {
+            "name": "OpenAI Status",
+            "authority": 25,
+            "type": "官方状态",
+        }
 
     if "github.com/openai/codex" in text:
-        return 4
+        return {
+            "name": "OpenAI Codex GitHub Issues",
+            "authority": 22,
+            "type": "官方仓库 / 用户反馈",
+        }
 
     if "linux.do" in text:
-        return 3
+        return {
+            "name": "Linux.do",
+            "authority": 18,
+            "type": "中文社区",
+        }
+
+    if "aihot.virxact.com/feed.xml" in text:
+        return {
+            "name": "AIHOT 精选",
+            "authority": 18,
+            "type": "中文精选聚合",
+        }
+
+    if "aihot.virxact.com/feed/daily.xml" in text:
+        return {
+            "name": "AIHOT 日报",
+            "authority": 16,
+            "type": "中文日报聚合",
+        }
 
     if "reddit.com" in text:
-        return 2
+        return {
+            "name": "Reddit",
+            "authority": 14,
+            "type": "海外社区",
+        }
 
     if "hnrss.org" in text:
-        return 1
-
-    if "theverge.com" in text:
-        return 0
+        return {
+            "name": "Hacker News",
+            "authority": 12,
+            "type": "技术社区",
+        }
 
     if "huggingface.co" in text:
-        return 0
+        return {
+            "name": "HuggingFace Blog",
+            "authority": 12,
+            "type": "官方/技术博客",
+        }
 
-    return 0
+    if "theverge.com" in text:
+        return {
+            "name": "The Verge AI",
+            "authority": 8,
+            "type": "泛 AI 媒体",
+        }
+
+    return {
+        "name": source or rss_url,
+        "authority": 8,
+        "type": "公开 RSS",
+    }
 
 
-def get_level_from_score(score, has_breaking, has_multi, source_weight, core_hits_count):
-    # 更严格的爆炸机制：
-    # 只有“爆炸关键词 + 多人/官方/高权重来源/多个核心主题”才判爆炸
-    if has_breaking and (has_multi or source_weight >= 4 or core_hits_count >= 2) and score >= 11:
+def clamp_score(score):
+    return max(0, min(100, int(round(score))))
+
+
+def level_from_score(score, has_critical, has_strong_evidence):
+    if score >= 90 and has_critical and has_strong_evidence:
         return "爆炸"
 
-    if score >= 8:
+    if score >= 75:
         return "高"
 
-    if score >= 5:
-        return "中"
+    if score >= 55:
+        return "观察"
 
     return "低"
 
@@ -422,9 +460,21 @@ def level_icon(level):
         return "🚨"
     if level == "高":
         return "🔴"
-    if level == "中":
+    if level == "观察":
         return "🟡"
-    return "🟢"
+    return "⚪"
+
+
+def rating_from_score(score):
+    if score >= 90:
+        return "S"
+    if score >= 75:
+        return "A"
+    if score >= 55:
+        return "B"
+    if score >= 40:
+        return "C"
+    return "D"
 
 
 def action_from_score(score, level):
@@ -432,118 +482,186 @@ def action_from_score(score, level):
         return "需要立刻关注"
     if level == "高":
         return "需要关注"
-    if level == "中":
+    if level == "观察":
         return "暂时观察"
     return "可忽略"
 
 
 def score_news(title, summary, source, rss_url):
     text = f"{title} {summary}"
+
+    source_profile = get_source_profile(source, rss_url)
+
+    critical_hits = matched_keywords(text, CRITICAL_EVENT_KEYWORDS)
+    core_hits = matched_keywords(text, CORE_TOPIC_KEYWORDS)
+    medium_hits = matched_keywords(text, MEDIUM_TOPIC_KEYWORDS)
+    single_hits = matched_keywords(text, SINGLE_REPORT_KEYWORDS)
+    multi_hits = matched_keywords(text, MULTI_REPORT_KEYWORDS)
+    low_value_hits = matched_keywords(text, LOW_VALUE_KEYWORDS)
+    block_hits = matched_keywords(text, BLOCK_KEYWORDS)
+
     score = 0
     reasons = []
 
-    source_weight = get_source_weight(source, rss_url)
-    score += source_weight
+    # 1. 来源权威度，最高 25
+    source_score = source_profile["authority"]
+    score += source_score
+    reasons.append(f"来源权威 {source_score}")
 
-    if source_weight > 0:
-        reasons.append(f"来源权重 +{source_weight}")
+    # 2. 主题相关度，最高 30
+    topic_score = 0
 
-    breaking_hits = matched_keywords(text, BREAKING_KEYWORDS)
-    high_hits = matched_keywords(text, HIGH_KEYWORDS)
-    medium_hits = matched_keywords(text, MEDIUM_KEYWORDS)
-    core_hits = matched_keywords(text, CORE_TOPICS)
-
-    has_breaking = bool(breaking_hits)
-    has_multi = contains_keyword(text, MULTI_REPORT_KEYWORDS)
-    has_single = contains_keyword(text, SINGLE_REPORT_KEYWORDS)
-
-    if breaking_hits:
-        score += 7
-        reasons.append(f"爆炸关键词 +7：{', '.join(breaking_hits[:3])}")
-
-    if high_hits:
-        score += 4
-        reasons.append(f"高兴趣关键词 +4：{', '.join(high_hits[:4])}")
+    if core_hits:
+        topic_score += 22
+        reasons.append(f"核心主题 +22：{', '.join(core_hits[:5])}")
 
     if medium_hits:
-        score += 2
-        reasons.append(f"中兴趣关键词 +2：{', '.join(medium_hits[:3])}")
-
-    if has_multi:
-        score += 2
-        reasons.append("多人反馈 +2")
-
-    if has_single:
-        score -= 2
-        reasons.append("单点/未确认反馈 -2")
-
-    if contains_keyword(text, LOW_VALUE_KEYWORDS):
-        score -= 1
-        reasons.append("泛新闻降权 -1")
-
-    if contains_keyword(text, BLOCK_KEYWORDS):
-        score -= 10
-        reasons.append("命中黑名单 -10")
+        topic_score += 10
+        reasons.append(f"普通 AI 主题 +10：{', '.join(medium_hits[:4])}")
 
     if len(core_hits) >= 2:
-        score += 2
-        reasons.append(f"多个核心主题 +2：{', '.join(core_hits[:4])}")
+        topic_score += 5
+        reasons.append("多个核心主题 +5")
 
-    if len(core_hits) >= 3:
-        score += 1
-        reasons.append("核心主题密度高 +1")
+    topic_score = min(topic_score, 30)
+    score += topic_score
 
-    level = get_level_from_score(
-        score=score,
-        has_breaking=has_breaking,
-        has_multi=has_multi,
-        source_weight=source_weight,
-        core_hits_count=len(core_hits),
-    )
+    # 3. 事件严重度，最高 25
+    severity_score = 0
+
+    if critical_hits:
+        severity_score += 25
+        reasons.append(f"严重事件 +25：{', '.join(critical_hits[:4])}")
+    elif any(k.lower() in text.lower() for k in ["rate limit", "quota", "billing", "refund", "verification"]):
+        severity_score += 12
+        reasons.append("额度/计费/验证异常 +12")
+    elif core_hits:
+        severity_score += 8
+        reasons.append("核心主题一般事件 +8")
+
+    severity_score = min(severity_score, 25)
+    score += severity_score
+
+    # 4. 证据强度，范围 -12 到 +15
+    evidence_score = 0
+    has_strong_evidence = False
+
+    if source_profile["authority"] >= 22:
+        evidence_score += 12
+        has_strong_evidence = True
+        reasons.append("官方/官方仓库来源 +12")
+
+    if multi_hits:
+        evidence_score += 10
+        has_strong_evidence = True
+        reasons.append(f"多人/确认反馈 +10：{', '.join(multi_hits[:3])}")
+
+    if single_hits:
+        evidence_score -= 10
+        reasons.append(f"单点/未确认反馈 -10：{', '.join(single_hits[:3])}")
+
+    evidence_score = max(-12, min(15, evidence_score))
+    score += evidence_score
+
+    # 5. 鲜度/聚合质量，最高 5
+    freshness_score = 0
+
+    if "aihot.virxact.com/feed.xml" in rss_url:
+        freshness_score += 5
+        reasons.append("AIHOT 精选 +5")
+    elif "aihot.virxact.com/feed/daily.xml" in rss_url:
+        freshness_score += 4
+        reasons.append("AIHOT 日报 +4")
+    elif "latest" in rss_url or "newest" in rss_url or "issues.atom" in rss_url:
+        freshness_score += 4
+        reasons.append("最新流 +4")
+    elif "top" in rss_url:
+        freshness_score += 3
+        reasons.append("热门流 +3")
+
+    freshness_score = min(freshness_score, 5)
+    score += freshness_score
+
+    # 6. 噪音惩罚
+    penalty = 0
+
+    if block_hits:
+        penalty += 100
+        reasons.append(f"黑名单命中 -100：{', '.join(block_hits[:4])}")
+
+    if low_value_hits:
+        penalty += 12
+        reasons.append(f"泛新闻降权 -12：{', '.join(low_value_hits[:3])}")
+
+    # 泛 AI 媒体 + 没有核心主题，额外降权
+    if source_profile["authority"] <= 12 and not core_hits and medium_hits:
+        penalty += 15
+        reasons.append("低权重泛 AI 新闻且无核心主题 -15")
+
+    # 只有普通 AI，完全没有你关心的账号/Codex/风控类主题，降权
+    if medium_hits and not core_hits and not critical_hits:
+        penalty += 10
+        reasons.append("仅普通 AI 主题 -10")
+
+    score -= penalty
+
+    score = clamp_score(score)
+
+    has_critical = bool(critical_hits)
+
+    # 高权威官方源也算强证据
+    if source_profile["authority"] >= 22:
+        has_strong_evidence = True
+
+    level = level_from_score(score, has_critical, has_strong_evidence)
+    rating = rating_from_score(score)
+    action = action_from_score(score, level)
 
     return {
         "score": score,
         "level": level,
+        "rating": rating,
+        "action": action,
         "reasons": reasons,
-        "breaking_hits": breaking_hits,
-        "high_hits": high_hits,
-        "medium_hits": medium_hits,
+        "source_profile": source_profile,
+        "critical_hits": critical_hits,
         "core_hits": core_hits,
-        "source_weight": source_weight,
-        "has_single": has_single,
-        "has_multi": has_multi,
+        "medium_hits": medium_hits,
+        "single_hits": single_hits,
+        "multi_hits": multi_hits,
+        "low_value_hits": low_value_hits,
+        "block_hits": block_hits,
+        "has_critical": has_critical,
+        "has_strong_evidence": has_strong_evidence,
     }
 
 
 def should_skip(title, summary, score_info):
     text = f"{title} {summary}"
-    score = score_info["score"]
-    level = score_info["level"]
 
-    if contains_keyword(text, BLOCK_KEYWORDS):
+    if score_info["block_hits"]:
         return True, "命中黑名单"
 
-    if score < 5:
-        return True, f"评分过低：{score}"
+    if score_info["score"] < 55:
+        return True, f"评分低于推送线：{score_info['score']}"
 
-    if level == "低":
+    if score_info["level"] == "低":
         return True, "低兴趣内容"
 
-    # 只有泛 AI，没有高兴趣关键词，也没有核心主题，跳过
-    if (
-        score_info["medium_hits"]
-        and not score_info["high_hits"]
-        and not score_info["core_hits"]
-        and score_info["source_weight"] <= 1
-    ):
-        return True, "泛 AI 新闻，缺少核心主题"
+    # 单点反馈可以推，但必须分数足够高
+    if score_info["single_hits"] and score_info["score"] < 70:
+        return True, f"单点反馈且分数不足：{score_info['score']}"
+
+    # 普通 AI 新闻必须达到较高分才推
+    if score_info["medium_hits"] and not score_info["core_hits"] and score_info["score"] < 75:
+        return True, "普通 AI 新闻分数不足"
 
     return False, ""
 
 
 def fetch_feed(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/1.0"
+        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/2.0"
     }
 
     try:
@@ -558,8 +676,10 @@ def fetch_feed(url):
 def fallback_message(title, summary, source, link, score_info):
     level = score_info["level"]
     score = score_info["score"]
+    rating = score_info["rating"]
+    action = score_info["action"]
     reasons = score_info["reasons"]
-    action = action_from_score(score, level)
+    source_profile = score_info["source_profile"]
 
     if level == "爆炸":
         prefix = "🚨【爆炸新闻】"
@@ -568,27 +688,26 @@ def fallback_message(title, summary, source, link, score_info):
     else:
         prefix = "🟡【观察】"
 
-    reason_text = "、".join(reasons[:4]) if reasons else "公开来源自动抓取"
+    reason_text = "、".join(reasons[:5]) if reasons else "公开来源自动抓取"
 
-    return f"""{prefix}{short_text(title, 120)}
+    return f"""{prefix}{short_text(title, 100)}
 
 {level_icon(level)} 兴趣等级：{level}
-🔥 评分：{score}
+🔥 评分：{score}/100
+🏷 评级：{rating}
+📌 建议：{action}
 
 📝 变化：
 - {short_text(summary, 500)}
 
 🔎 关键信息：
-- 类型：AI / 账号风控 / Codex / Claude Code / Plus / 其他
-- 范围：公开来源，未完成多源交叉验证
+- 来源类型：{source_profile["type"]}
+- 来源权重：{source_profile["authority"]}/25
 - 触发原因：{reason_text}
 
 ⚠️ 风险判断：中
-- 只能当作公开线索，涉及账号、额度、封号、接码的信息需要继续核实。
-
-📌 建议：
-- {action}
-- 不要基于单条反馈立刻调整全部账号策略。
+- 当前为公开来源自动抓取，未完成多来源交叉验证。
+- 涉及账号、额度、封号、接码的信息需要继续核实。
 
 可信度：中
 理由：来自公开 RSS，但未做多来源验证。
@@ -600,8 +719,8 @@ def fallback_message(title, summary, source, link, score_info):
 def deepseek_summarize(title, summary, source, link, score_info):
     level = score_info["level"]
     score = score_info["score"]
-    reasons = score_info["reasons"]
-    action = action_from_score(score, level)
+    rating = score_info["rating"]
+    action = score_info["action"]
 
     if not DEEPSEEK_API_KEY:
         print("DEEPSEEK_API_KEY not set, use fallback message.")
@@ -613,56 +732,60 @@ def deepseek_summarize(title, summary, source, link, score_info):
 来源：{source}
 摘要：{summary}
 链接：{link}
+
+系统评分：
 兴趣等级：{level}
-评分：{score}
-系统建议：{action}
-触发原因：{reasons}
-核心命中：{score_info.get("core_hits", [])}
-爆炸命中：{score_info.get("breaking_hits", [])}
-高兴趣命中：{score_info.get("high_hits", [])}
-是否单点反馈：{score_info.get("has_single")}
-是否多人反馈：{score_info.get("has_multi")}
+评分：{score}/100
+评级：{rating}
+建议：{action}
+来源信息：{score_info.get("source_profile")}
+触发原因：{score_info.get("reasons")}
+严重事件命中：{score_info.get("critical_hits")}
+核心主题命中：{score_info.get("core_hits")}
+普通主题命中：{score_info.get("medium_hits")}
+单点反馈命中：{score_info.get("single_hits")}
+多人反馈命中：{score_info.get("multi_hits")}
 """,
-        4200
+        4500
     )
 
-    system_prompt = """你是一个 Telegram / 飞书 AI 情报频道的中文编辑。
-你的任务是把公开 RSS、社区帖子、新闻源内容，总结成简短、清晰、像情报卡片一样的中文推送。
+    system_prompt = """你是一个飞书 AI 情报频道的中文编辑。
+你的任务是把公开 RSS、社区帖子、新闻源内容，总结成短、准、清晰的中文情报卡片。
 
-核心要求：
-1. 只根据用户给出的内容总结，不要编造未出现的信息。
+严格要求：
+1. 只能根据用户给出的内容总结，不要编造未出现的信息。
 2. 必须区分已知信息和不确定信息。
 3. 涉及封号、接码、账号、风控、额度、OAuth、access token、refresh token、401、共享号、Plus/Pro 时，只做风险分析，不提供薅号、绕风控、盗号、规避检测教程。
-4. 中文输出，短句优先，适合 Telegram / 飞书阅读。
-5. 不要输出 Markdown 表格。
-6. 不要输出代码块。
-7. 如果原文只是单点反馈，必须写“单点反馈 / 未确认”，并降低风险判断强度。
-8. 如果没有评论内容，不要输出“评论补充”模块。
-9. 输出要像情报卡片，不要像长文章。
-10. 标题要短、准、像快讯，但不要标题党。
-11. 不要写“根据原文”这种废话。
-12. 不要写无意义安全提示。
+4. 如果只是单点反馈，必须写“单点反馈 / 未确认”，不要说成大规模。
+5. 如果没有评论内容，不要输出“评论补充”模块。
+6. 不要输出 Markdown 表格。
+7. 不要输出代码块。
+8. 不要写“根据原文”“根据你提供的信息”这种废话。
+9. 标题要像情报快讯，短、准，不标题党。
+10. 输出适合飞书手机端阅读，不要太长。
 """
 
     user_prompt = f"""请把下面信息整理成固定格式。
 
-当前系统判断：
+系统判断：
 - 兴趣等级：{level}
-- 评分：{score}
+- 评分：{score}/100
+- 评级：{rating}
 - 建议：{action}
-- 触发原因：{reasons}
 
 标题规则：
 - 爆炸等级：标题前加 🚨【爆炸新闻】
 - 高等级：标题前加 🔴【高关注】
-- 中等级：标题前加 🟡【观察】
-- 标题一句话，尽量 30 字以内
+- 观察等级：标题前加 🟡【观察】
+- 标题尽量 30 字以内
 - 不要夸大，不要编造
 
 必须输出：
 
 {level_icon(level)} 兴趣等级：{level}
-🔥 评分：{score}
+🔥 评分：{score}/100
+🏷 评级：{rating}
+📌 建议：{action}
 
 📝 变化：
 - 用 1-3 条写清楚发生了什么
@@ -675,10 +798,6 @@ def deepseek_summarize(title, summary, source, link, score_info):
 ⚠️ 风险判断：低/中/高
 - 用 1-3 条说明为什么
 - 如果是单点反馈，不要直接判断为大规模事件
-
-📌 建议：
-- {action}
-- 给 1 条具体建议
 
 可信度：高/中/低
 理由：一句话
@@ -717,8 +836,8 @@ def deepseek_summarize(title, summary, source, link, score_info):
         data = response.json()
         content = data["choices"][0]["message"]["content"].strip()
 
-        if f"兴趣等级：{level}" not in content:
-            content = f"{level_icon(level)} 兴趣等级：{level}\n🔥 评分：{score}\n\n{content}"
+        if f"评分：{score}/100" not in content:
+            content = f"{level_icon(level)} 兴趣等级：{level}\n🔥 评分：{score}/100\n🏷 评级：{rating}\n📌 建议：{action}\n\n{content}"
 
         return content
 
@@ -764,9 +883,9 @@ def main():
     new_seen = set(seen)
 
     candidates = []
+    accepted_titles = []
     skipped_count = 0
     skipped_similar_count = 0
-    accepted_titles = []
 
     for rss_url in RSS_SOURCES:
         feed = fetch_feed(rss_url)
@@ -777,12 +896,9 @@ def main():
         source = feed.feed.get("title", rss_url)
 
         for entry in feed.entries[:12]:
-            title = entry.get("title", "")
+            title = clean_html(entry.get("title", ""))
             link = entry.get("link", "")
-            summary = entry.get("summary", "") or entry.get("description", "")
-
-            title = clean_html(title)
-            summary = clean_html(summary)
+            summary = clean_html(entry.get("summary", "") or entry.get("description", ""))
 
             if not title or not link:
                 continue
@@ -811,7 +927,7 @@ def main():
             priority = {
                 "爆炸": 0,
                 "高": 1,
-                "中": 2,
+                "观察": 2,
                 "低": 3,
             }.get(score_info["level"], 3)
 
@@ -819,7 +935,6 @@ def main():
                 "priority": priority,
                 "score": score_info["score"],
                 "uid": uid,
-                "level": score_info["level"],
                 "title": title,
                 "summary": summary,
                 "source": source,
@@ -829,7 +944,7 @@ def main():
 
             accepted_titles.append(title)
 
-    # 优先级：爆炸 > 高 > 中；同级按评分高低
+    # 优先级：爆炸 > 高 > 观察；同级按评分高低
     candidates.sort(key=lambda item: (item["priority"], -item["score"]))
 
     sent_count = 0
