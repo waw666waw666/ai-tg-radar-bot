@@ -17,32 +17,35 @@ SEEN_FILE = Path("seen.json")
 
 
 RSS_SOURCES = [
-    # 中文社区 / 高价值情报源
+    # A类：权威源 / 官方状态 / 官方仓库 / 工具发布
+    "https://status.openai.com/history.rss",
+    "https://github.com/openai/codex/issues.atom",
+    "https://github.com/openai/codex/releases.atom",
+    "https://github.com/anthropics/claude-code/releases.atom",
+    "https://github.com/google-gemini/gemini-cli/releases.atom",
+
+    # B类：社区源 / 一线反馈 / 中文高价值情报
     "https://linux.do/latest.rss",
     "https://linux.do/top.rss",
     "https://linux.do/posts.rss",
 
-    # AIHOT：只加精选和日报，不加 all，避免刷屏
-    "https://aihot.virxact.com/feed.xml",
-    "https://aihot.virxact.com/feed/daily.xml",
-
-    # 官方状态 / Codex
-    "https://status.openai.com/history.rss",
-    "https://github.com/openai/codex/issues.atom",
-
-    # Reddit 社区反馈
     "https://www.reddit.com/r/ClaudeAI/search.rss?q=Claude%20Code%20OR%20HERMES.md%20OR%20billing%20OR%20refund&restrict_sr=1&sort=new",
     "https://www.reddit.com/r/OpenAI/search.rss?q=Codex%20OR%20rate%20limit%20OR%20banned%20OR%20suspended%20OR%20verification&restrict_sr=1&sort=new",
     "https://www.reddit.com/r/ChatGPT/search.rss?q=Plus%20OR%20banned%20OR%20suspended%20OR%20verification%20OR%20text%20message&restrict_sr=1&sort=new",
     "https://www.reddit.com/r/GitHubCopilot/search.rss?q=student%20OR%20model%20OR%20Codex%20OR%20Claude&restrict_sr=1&sort=new",
 
-    # Hacker News 关键词
     "https://hnrss.org/newest?q=OpenAI",
     "https://hnrss.org/newest?q=Claude",
     "https://hnrss.org/newest?q=Codex",
     "https://hnrss.org/newest?q=Gemini",
+    "https://hnrss.org/newest?q=Claude%20Code",
+    "https://hnrss.org/newest?q=Gemini%20CLI",
 
-    # 泛 AI 新闻，权重较低
+    # C类：精选聚合源，只加精选和日报，不加全部动态，避免刷屏
+    "https://aihot.virxact.com/feed.xml",
+    "https://aihot.virxact.com/feed/daily.xml",
+
+    # D类：泛 AI 技术源，低权重补充
     "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
     "https://huggingface.co/blog/feed.xml",
 ]
@@ -179,6 +182,7 @@ CORE_TOPIC_KEYWORDS = [
     "GitHub Copilot",
     "Claude Code",
     "HERMES.md",
+    "Gemini CLI",
     "billing",
     "refund",
     "账号",
@@ -313,6 +317,8 @@ def clean_html(text):
     text = re.sub(r"&amp;", "&", text)
     text = re.sub(r"&lt;", "<", text)
     text = re.sub(r"&gt;", ">", text)
+    text = re.sub(r"&quot;", '"', text)
+    text = re.sub(r"&#39;", "'", text)
     return normalize_text(text)
 
 
@@ -368,73 +374,98 @@ def matched_keywords(text, keywords):
 def get_source_profile(source, rss_url):
     text = f"{source} {rss_url}".lower()
 
+    # A类：权威源 / 官方状态 / 官方仓库
     if "status.openai.com" in text:
         return {
             "name": "OpenAI Status",
             "authority": 25,
-            "type": "官方状态",
+            "type": "A类 / 官方状态",
         }
 
-    if "github.com/openai/codex" in text:
+    if "github.com/openai/codex/issues" in text:
         return {
-            "name": "OpenAI Codex GitHub Issues",
-            "authority": 22,
-            "type": "官方仓库 / 用户反馈",
+            "name": "OpenAI Codex Issues",
+            "authority": 23,
+            "type": "A类 / 官方仓库用户反馈",
         }
 
+    if "github.com/openai/codex/releases" in text:
+        return {
+            "name": "OpenAI Codex Releases",
+            "authority": 23,
+            "type": "A类 / 官方仓库发布",
+        }
+
+    if "github.com/anthropics/claude-code/releases" in text:
+        return {
+            "name": "Claude Code Releases",
+            "authority": 22,
+            "type": "A类 / 官方仓库发布",
+        }
+
+    if "github.com/google-gemini/gemini-cli/releases" in text:
+        return {
+            "name": "Gemini CLI Releases",
+            "authority": 21,
+            "type": "A类 / 官方仓库发布",
+        }
+
+    # B类：社区源 / 一线反馈
     if "linux.do" in text:
         return {
             "name": "Linux.do",
-            "authority": 18,
-            "type": "中文社区",
-        }
-
-    if "aihot.virxact.com/feed.xml" in text:
-        return {
-            "name": "AIHOT 精选",
-            "authority": 18,
-            "type": "中文精选聚合",
-        }
-
-    if "aihot.virxact.com/feed/daily.xml" in text:
-        return {
-            "name": "AIHOT 日报",
-            "authority": 16,
-            "type": "中文日报聚合",
+            "authority": 19,
+            "type": "B类 / 中文社区一线反馈",
         }
 
     if "reddit.com" in text:
         return {
             "name": "Reddit",
             "authority": 14,
-            "type": "海外社区",
+            "type": "B类 / 海外社区反馈",
         }
 
     if "hnrss.org" in text:
         return {
             "name": "Hacker News",
-            "authority": 12,
-            "type": "技术社区",
+            "authority": 13,
+            "type": "B类 / 技术社区讨论",
         }
 
+    # C类：精选聚合源
+    if "aihot.virxact.com/feed.xml" in text:
+        return {
+            "name": "AIHOT 精选",
+            "authority": 18,
+            "type": "C类 / 中文精选聚合",
+        }
+
+    if "aihot.virxact.com/feed/daily.xml" in text:
+        return {
+            "name": "AIHOT 日报",
+            "authority": 16,
+            "type": "C类 / 中文日报聚合",
+        }
+
+    # D类：泛 AI 技术源
     if "huggingface.co" in text:
         return {
             "name": "HuggingFace Blog",
             "authority": 12,
-            "type": "官方/技术博客",
+            "type": "D类 / 技术博客",
         }
 
     if "theverge.com" in text:
         return {
             "name": "The Verge AI",
             "authority": 8,
-            "type": "泛 AI 媒体",
+            "type": "D类 / 泛 AI 媒体",
         }
 
     return {
         "name": source or rss_url,
         "authority": 8,
-        "type": "公开 RSS",
+        "type": "未知公开 RSS",
     }
 
 
@@ -546,7 +577,7 @@ def score_news(title, summary, source, rss_url):
     evidence_score = 0
     has_strong_evidence = False
 
-    if source_profile["authority"] >= 22:
+    if source_profile["authority"] >= 21:
         evidence_score += 12
         has_strong_evidence = True
         reasons.append("官方/官方仓库来源 +12")
@@ -572,6 +603,9 @@ def score_news(title, summary, source, rss_url):
     elif "aihot.virxact.com/feed/daily.xml" in rss_url:
         freshness_score += 4
         reasons.append("AIHOT 日报 +4")
+    elif "releases.atom" in rss_url:
+        freshness_score += 5
+        reasons.append("官方发布流 +5")
     elif "latest" in rss_url or "newest" in rss_url or "issues.atom" in rss_url:
         freshness_score += 4
         reasons.append("最新流 +4")
@@ -610,7 +644,7 @@ def score_news(title, summary, source, rss_url):
     has_critical = bool(critical_hits)
 
     # 高权威官方源也算强证据
-    if source_profile["authority"] >= 22:
+    if source_profile["authority"] >= 21:
         has_strong_evidence = True
 
     level = level_from_score(score, has_critical, has_strong_evidence)
@@ -637,8 +671,6 @@ def score_news(title, summary, source, rss_url):
 
 
 def should_skip(title, summary, score_info):
-    text = f"{title} {summary}"
-
     if score_info["block_hits"]:
         return True, "命中黑名单"
 
@@ -661,7 +693,7 @@ def should_skip(title, summary, score_info):
 
 def fetch_feed(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/2.0"
+        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/2.1"
     }
 
     try:
@@ -791,7 +823,7 @@ def deepseek_summarize(title, summary, source, link, score_info):
 - 用 1-3 条写清楚发生了什么
 
 🔎 关键信息：
-- 类型：账号风控 / Codex / Claude Code / Plus / 普通 AI 新闻 / 其他
+- 类型：账号风控 / Codex / Claude Code / Gemini CLI / Plus / 普通 AI 新闻 / 其他
 - 范围：单点反馈 / 多人反馈 / 官方信息 / 未确认
 - 影响：一句话说明影响
 
