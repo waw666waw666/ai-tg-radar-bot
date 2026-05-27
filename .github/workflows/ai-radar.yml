@@ -3,7 +3,7 @@ name: AI Feishu Radar Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: "35 * * * *"
+    - cron: "40 * * * *"
 
 permissions:
   contents: write
