@@ -24,6 +24,10 @@ RSS_SOURCES = [
     "https://github.com/anthropics/claude-code/releases.atom",
     "https://github.com/google-gemini/gemini-cli/releases.atom",
 
+    # A类补充：官方公告 / GitHub Copilot 更新
+    "https://github.blog/changelog/label/copilot/feed/",
+    "https://openai.com/news/rss.xml",
+
     # B类：社区源 / 一线反馈 / 中文高价值情报
     "https://linux.do/latest.rss",
     "https://linux.do/top.rss",
@@ -180,6 +184,9 @@ CORE_TOPIC_KEYWORDS = [
     "学生包",
     "GitHub Student",
     "GitHub Copilot",
+    "Copilot",
+    "Copilot Chat",
+    "Copilot coding agent",
     "Claude Code",
     "HERMES.md",
     "Gemini CLI",
@@ -410,6 +417,20 @@ def get_source_profile(source, rss_url):
             "type": "A类 / 官方仓库发布",
         }
 
+    if "github.blog/changelog/label/copilot/feed" in text:
+        return {
+            "name": "GitHub Copilot Changelog",
+            "authority": 21,
+            "type": "A类 / GitHub Copilot 官方变更",
+        }
+
+    if "openai.com/news/rss.xml" in text:
+        return {
+            "name": "OpenAI News",
+            "authority": 20,
+            "type": "A类 / OpenAI 官方新闻",
+        }
+
     # B类：社区源 / 一线反馈
     if "linux.do" in text:
         return {
@@ -603,6 +624,12 @@ def score_news(title, summary, source, rss_url):
     elif "aihot.virxact.com/feed/daily.xml" in rss_url:
         freshness_score += 4
         reasons.append("AIHOT 日报 +4")
+    elif "github.blog/changelog/label/copilot/feed" in rss_url:
+        freshness_score += 5
+        reasons.append("Copilot 官方变更流 +5")
+    elif "openai.com/news/rss.xml" in rss_url:
+        freshness_score += 4
+        reasons.append("OpenAI 官方新闻流 +4")
     elif "releases.atom" in rss_url:
         freshness_score += 5
         reasons.append("官方发布流 +5")
@@ -693,7 +720,7 @@ def should_skip(title, summary, score_info):
 
 def fetch_feed(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/2.1"
+        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/2.2"
     }
 
     try:
@@ -823,7 +850,7 @@ def deepseek_summarize(title, summary, source, link, score_info):
 - 用 1-3 条写清楚发生了什么
 
 🔎 关键信息：
-- 类型：账号风控 / Codex / Claude Code / Gemini CLI / Plus / 普通 AI 新闻 / 其他
+- 类型：账号风控 / Codex / Claude Code / Gemini CLI / GitHub Copilot / Plus / 普通 AI 新闻 / 其他
 - 范围：单点反馈 / 多人反馈 / 官方信息 / 未确认
 - 影响：一句话说明影响
 
