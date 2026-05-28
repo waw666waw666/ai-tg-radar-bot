@@ -17,29 +17,29 @@ SEEN_FILE = Path("seen.json")
 
 
 # =========================
-# 推送策略：中高质量，自适应推送
+# 推送策略：中高质量，不刷屏
 # =========================
 HIGH_QUALITY_ONLY = True
 
 # 规则评分低于这个值：直接跳过，不进入 AI 判断
 MIN_RULE_SCORE = 58
 
-# 最终推送最低分：70 分以上才有资格推送
+# 最终推送最低分：低于这个不推送
 MIN_PUSH_SCORE = 70
 
-# 单点反馈最低推送分：你说 70 分就可以，所以不再卡到 78/85
+# 单点反馈最低推送分：你关注账号 / Codex / 接码 / 验证，所以 70 分也允许进入 AI 判推
 MIN_SINGLE_REPORT_SCORE = 70
 
 # 普通泛 AI 新闻最低推送分：普通新闻仍然更严格，避免 Reddit / HN 垃圾刷屏
 MIN_GENERAL_AI_SCORE = 78
 
-# 软推送限制：一般情况推到 3 条就够
+# 软推送限制：普通情况下推到 3 条就够
 SOFT_SEND_LIMIT = 3
 
 # 高分突破线：达到这个分数，即使超过 3 条也继续推
 HIGH_SCORE_SEND_BYPASS = 88
 
-# 硬上限：防止一次极端刷屏
+# 硬上限：防止极端情况下刷屏
 HARD_SEND_LIMIT = 8
 
 # 每次最多让 AI 判断几条，避免浪费 token
@@ -163,6 +163,18 @@ CRITICAL_EVENT_KEYWORDS = [
     "Pro 限制",
     "短信验证",
     "接码失败",
+    "二次验证",
+    "二验",
+    "重新验证",
+    "需要验证",
+    "强制验证",
+    "强验",
+    "手机号验证",
+    "手机验证",
+    "接码二验",
+    "接码验证",
+    "Codex 接码",
+    "codex接码",
     "text message verification",
     "rate limit incident",
     "Codex outage",
@@ -336,22 +348,14 @@ def load_seen():
         return set()
 
     try:
-        data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
-
-        if isinstance(data, list):
-            return set(data)
-
-        if isinstance(data, dict):
-            return set(data.keys())
-
-        return set()
+        return set(json.loads(SEEN_FILE.read_text(encoding="utf-8")))
     except Exception:
         return set()
 
 
 def save_seen(seen):
     SEEN_FILE.write_text(
-        json.dumps(list(seen)[-3000:], ensure_ascii=False, indent=2),
+        json.dumps(list(seen)[-2600:], ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
 
@@ -555,6 +559,31 @@ def score_news(title, summary, source, rss_url):
     topic_score = min(topic_score, 32)
     score += topic_score
 
+    special_combo_score = 0
+    lower_text = text.lower()
+
+    codex_related = "codex" in lower_text
+    verification_related = any(k in lower_text for k in [
+        "二次验证",
+        "二验",
+        "重新验证",
+        "需要验证",
+        "强制验证",
+        "强验",
+        "手机号验证",
+        "手机验证",
+        "短信验证",
+        "接码",
+        "verification",
+        "text message",
+    ])
+
+    if codex_related and verification_related:
+        special_combo_score += 12
+        reasons.append("Codex + 接码/验证特殊关注 +12")
+
+    score += special_combo_score
+
     severity_score = 0
 
     if critical_hits:
@@ -643,12 +672,12 @@ def score_news(title, summary, source, rss_url):
         penalty += 20
         reasons.append("泛 AI 源无核心主题 -20")
 
-    # Reddit 搜索源更容易混入无关内容；没有核心主题时再降权
     if source_profile["name"] == "Reddit" and not core_hits and not critical_hits:
         penalty += 18
         reasons.append("Reddit 搜索结果无核心主题 -18")
 
     score -= penalty
+
     score = clamp_score(score)
 
     has_critical = bool(critical_hits)
@@ -1329,8 +1358,6 @@ def main():
         print(
             "AI judge:",
             judge_status,
-            "| score=",
-            item["score"],
             "| push=",
             ai_judgement.get("should_push"),
             "| risk=",
