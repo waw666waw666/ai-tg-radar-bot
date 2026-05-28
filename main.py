@@ -19,21 +19,30 @@ SEEN_FILE = Path("seen.json")
 
 
 # =========================
-# 推送策略：中高质量，不刷屏
+# 推送策略：过去 1 小时热点 + 中高质量 + 不刷屏
 # =========================
 HIGH_QUALITY_ONLY = True
+
+# 重点抓取过去 1 小时热点
+HOT_WINDOW_HOURS = 1
+
+# 旧内容宽限：超过 1 小时但低于 3 小时，只有强偏好/官方事故/高分才可能进入
+OLD_ITEM_GRACE_HOURS = 3
 
 # 规则评分低于这个值：直接跳过，不进入 AI 判断
 MIN_RULE_SCORE = 58
 
-# 最终推送最低分：低于这个不推送
+# 最终推送最低分
 MIN_PUSH_SCORE = 70
 
-# 单点反馈最低推送分：你关注账号 / Codex / 接码 / 验证，所以 70 分也允许进入 AI 判推
+# 单点反馈最低推送分：账号 / Codex / 接码 / 验证类 70 分也允许进入 AI 判推
 MIN_SINGLE_REPORT_SCORE = 70
 
-# 普通泛 AI 新闻最低推送分：普通新闻仍然更严格，避免 Reddit / HN 垃圾刷屏
+# 普通泛 AI 新闻最低推送分：继续更严格，避免 Reddit / HN 垃圾刷屏
 MIN_GENERAL_AI_SCORE = 78
+
+# 强偏好内容进入 AI 判断的例外线：PP / 接码 / 二验 / 401 / free / Codex text message 等
+PREFERRED_ALLOW_JUDGE_SCORE = 65
 
 # 软推送限制：普通情况下推到 3 条就够
 SOFT_SEND_LIMIT = 3
@@ -45,18 +54,23 @@ HIGH_SCORE_SEND_BYPASS = 88
 HARD_SEND_LIMIT = 8
 
 # 每次最多让 AI 判断几条，避免浪费 token
-MAX_JUDGE_COUNT = 20
+MAX_JUDGE_COUNT = 24
 
 # 每个 RSS 最多读取几条
-MAX_ENTRIES_PER_FEED = 10
+MAX_ENTRIES_PER_FEED = 15
 
 # 没有高质量内容时不发任何消息
 SEND_EMPTY_HEARTBEAT = False
 
+# 同类事件合并，避免同一类二验/接码/PP 风控消息连续推多条
+MERGE_SIMILAR_EVENTS = True
+MERGE_SIMILARITY_THRESHOLD = 0.78
+MAX_RELATED_UPDATES_IN_CARD = 4
+
 
 # =========================
-# 你的重点偏好：PP / 接码 / 二验 / Free / 邮箱注册收紧
-# 只用于风险情报评分，不输出教程
+# 用户强偏好：PP / 接码 / 二验 / Free / 401 / 账号风控
+# 只做风险观察，不输出教程
 # =========================
 PREFERRED_RISK_KEYWORDS = [
     "pp",
@@ -75,19 +89,21 @@ PREFERRED_RISK_KEYWORDS = [
     "疑似拉闸",
     "变回free",
     "变回 Free",
+    "注册成功瞬间变回free",
+    "Plus变Free",
+    "plus变free",
     "free",
     "Free",
-    "注册成功瞬间变回free",
     "手搓接码",
     "接码",
     "接码平台",
     "接码渠道",
-    "接码要怎么买",
     "手机接码",
     "手机号随机",
     "随机手机号",
     "二次验证",
     "二验",
+    "三次验证",
     "强制二验",
     "gpt登录二次验证",
     "GPT登录二次验证",
@@ -97,12 +113,11 @@ PREFERRED_RISK_KEYWORDS = [
     "邮箱注册",
     "注册入口",
     "手机号验证",
+    "手机验证",
     "短信验证",
     "text message",
     "hero sms",
     "Hero SMS",
-    "sms",
-    "SMS",
     "WhatsApp",
     "whatsapp",
     "巴西",
@@ -111,7 +126,10 @@ PREFERRED_RISK_KEYWORDS = [
     "同一号码",
     "绑 3 次",
     "绑定 3 次",
+    "成功率",
+    "很快",
     "401",
+    "403",
     "AT",
     "RT",
     "session",
@@ -123,7 +141,11 @@ PREFERRED_RISK_COMBO_HINTS = [
     ["pp", "拉闸"],
     ["pp", "401"],
     ["pp", "无卡"],
+    ["pp", "复活"],
     ["paypal", "plus"],
+    ["plus", "free"],
+    ["注册", "free"],
+    ["注册成功", "free"],
     ["gpt", "二次验证"],
     ["gpt", "接码"],
     ["chatgpt", "接码"],
@@ -131,11 +153,19 @@ PREFERRED_RISK_COMBO_HINTS = [
     ["codex", "text message"],
     ["codex", "接码"],
     ["codex", "短信"],
+    ["codex", "二次验证"],
+    ["team", "二次验证"],
+    ["team", "接码"],
     ["邮箱", "接码"],
     ["注册", "接码"],
     ["手机号", "随机"],
-    ["手搓接码", "免费"],
+    ["手搓接码", "巴西"],
     ["hero sms", "号码"],
+    ["hero sms", "二次验证"],
+    ["whatsapp", "验证码"],
+    ["401", "team"],
+    ["401", "ak"],
+    ["401", "cpa"],
 ]
 
 
@@ -253,7 +283,6 @@ CRITICAL_EVENT_KEYWORDS = [
     "手搓接码",
     "接码渠道",
     "接码平台",
-    "接码要怎么买",
     "pp又复活",
     "PP又复活",
     "PP渠道",
@@ -269,6 +298,7 @@ CRITICAL_EVENT_KEYWORDS = [
     "邮箱都要接码",
     "二次验证",
     "二验",
+    "三次验证",
     "重新验证",
     "需要验证",
     "强制验证",
@@ -321,7 +351,6 @@ CORE_TOPIC_KEYWORDS = [
     "手搓接码",
     "接码渠道",
     "接码平台",
-    "接码要怎么买",
     "pp",
     "PP",
     "PayPal",
@@ -344,7 +373,9 @@ CORE_TOPIC_KEYWORDS = [
     "手机号随机",
     "随机手机号",
     "巴西",
+    "智利",
     "hero sms",
+    "Hero SMS",
     "WhatsApp",
     "text message",
     "verification",
@@ -432,6 +463,13 @@ LOW_VALUE_KEYWORDS = [
     "榜单",
     "The Verge",
     "Hugging Face",
+    "prompt engineering",
+    "epistemic",
+    "数学",
+    "科研",
+    "家庭使用",
+    "family",
+    "story",
 ]
 
 
@@ -480,14 +518,22 @@ def load_seen():
         return set()
 
     try:
-        return set(json.loads(SEEN_FILE.read_text(encoding="utf-8")))
+        data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
+
+        if isinstance(data, list):
+            return set(data)
+
+        if isinstance(data, dict):
+            return set(data.keys())
+
+        return set()
     except Exception:
         return set()
 
 
 def save_seen(seen):
     SEEN_FILE.write_text(
-        json.dumps(list(seen)[-2600:], ensure_ascii=False, indent=2),
+        json.dumps(list(seen)[-3200:], ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
 
@@ -516,20 +562,6 @@ def short_text(text, limit=2500):
     return text[:limit] + "..."
 
 
-def format_datetime_for_feishu(dt):
-    if not dt:
-        return "未知"
-
-    try:
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-
-        beijing_dt = dt.astimezone(timezone(timedelta(hours=8)))
-        return beijing_dt.strftime("%Y-%m-%d %H:%M:%S 北京时间")
-    except Exception:
-        return "未知"
-
-
 def parse_entry_datetime(entry):
     for key in ["published_parsed", "updated_parsed", "created_parsed"]:
         value = entry.get(key)
@@ -553,17 +585,47 @@ def parse_entry_datetime(entry):
     return None
 
 
+def format_datetime_for_feishu(dt):
+    if not dt:
+        return "未知"
+
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        beijing_dt = dt.astimezone(timezone(timedelta(hours=8)))
+        return beijing_dt.strftime("%Y-%m-%d %H:%M:%S 北京时间")
+    except Exception:
+        return "未知"
+
+
+def get_age_minutes(dt):
+    if not dt:
+        return None
+
+    try:
+        now = datetime.now(timezone.utc)
+
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        age = now - dt.astimezone(timezone.utc)
+        return max(0, age.total_seconds() / 60)
+    except Exception:
+        return None
+
+
 def item_id(title, link):
     raw = f"{title}|{link}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def text_signature(title):
-    title = clean_html(title).lower()
-    title = re.sub(r"https?://\S+", "", title)
-    title = re.sub(r"[\W_]+", " ", title)
-    title = re.sub(r"\s+", " ", title).strip()
-    return title
+def text_signature(text):
+    text = clean_html(text).lower()
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[\W_]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def is_similar_title(title, existing_titles, threshold=0.86):
@@ -581,6 +643,16 @@ def is_similar_title(title, existing_titles, threshold=0.86):
             return True
 
     return False
+
+
+def similarity(a, b):
+    a_sig = text_signature(a)
+    b_sig = text_signature(b)
+
+    if not a_sig or not b_sig:
+        return 0
+
+    return SequenceMatcher(None, a_sig, b_sig).ratio()
 
 
 def matched_keywords(text, keywords):
@@ -613,7 +685,7 @@ def get_source_profile(source, rss_url):
         return {"name": "OpenAI News", "authority": 20, "type": "A类 / OpenAI 官方新闻"}
 
     if "linux.do" in text:
-        return {"name": "Linux.do", "authority": 19, "type": "B类 / 中文社区一线反馈"}
+        return {"name": "Linux.do", "authority": 24, "type": "B类 / 中文社区一线反馈"}
 
     if "reddit.com" in text:
         return {"name": "Reddit", "authority": 14, "type": "B类 / 海外社区反馈"}
@@ -689,7 +761,99 @@ def action_from_score(score, level):
     return "可忽略"
 
 
-def score_news(title, summary, source, rss_url):
+def get_event_theme(title, summary):
+    text = f"{title} {summary}".lower()
+
+    theme_parts = []
+
+    if any(k in text for k in ["pp", "paypal", "无卡"]):
+        theme_parts.append("pp")
+    if any(k in text for k in ["free", "变回free", "plus变free"]):
+        theme_parts.append("free")
+    if any(k in text for k in ["接码", "手机号", "短信", "text message", "hero sms", "whatsapp", "巴西", "智利"]):
+        theme_parts.append("phone_verification")
+    if any(k in text for k in ["二次验证", "二验", "三次验证", "强验", "重新验证"]):
+        theme_parts.append("mfa")
+    if "codex" in text:
+        theme_parts.append("codex")
+    if "team" in text:
+        theme_parts.append("team")
+    if any(k in text for k in ["401", "403", "oauth", "access token", "refresh token", "at", "rt", "session", "auth.json"]):
+        theme_parts.append("token_401")
+    if any(k in text for k in ["额度", "quota", "rate limit", "weekly limit", "5h"]):
+        theme_parts.append("quota")
+
+    if not theme_parts:
+        return "general"
+
+    return "+".join(sorted(set(theme_parts)))
+
+
+def has_preferred_signal(title, summary):
+    text = f"{title} {summary}"
+    preferred_hits = matched_keywords(text, PREFERRED_RISK_KEYWORDS)
+
+    if preferred_hits:
+        return True
+
+    lower_text = text.lower()
+
+    for combo in PREFERRED_RISK_COMBO_HINTS:
+        if all(part.lower() in lower_text for part in combo):
+            return True
+
+    return False
+
+
+def time_score_from_age(age_minutes):
+    if age_minutes is None:
+        return 2, "发布时间未知 +2"
+
+    if age_minutes <= 15:
+        return 10, "0-15分钟热点 +10"
+
+    if age_minutes <= 30:
+        return 8, "15-30分钟热点 +8"
+
+    if age_minutes <= 60:
+        return 6, "30-60分钟热点 +6"
+
+    if age_minutes <= OLD_ITEM_GRACE_HOURS * 60:
+        return 2, "1-3小时旧热点 +2"
+
+    return 0, "超过3小时 +0"
+
+
+def should_ignore_by_time(published_dt, score_info, title, summary):
+    age_minutes = get_age_minutes(published_dt)
+
+    if age_minutes is None:
+        return False, ""
+
+    if age_minutes <= HOT_WINDOW_HOURS * 60:
+        return False, ""
+
+    if age_minutes <= OLD_ITEM_GRACE_HOURS * 60:
+        if score_info["score"] >= HIGH_SCORE_SEND_BYPASS:
+            return False, ""
+
+        if has_preferred_signal(title, summary):
+            return False, ""
+
+        if score_info["source_profile"]["authority"] >= 21 and score_info["has_critical"]:
+            return False, ""
+
+        return True, f"超过1小时且不是强偏好/高分/官方事故：{int(age_minutes)}分钟"
+
+    if score_info["score"] >= 92 and score_info["has_critical"]:
+        return False, ""
+
+    return True, f"超过热点窗口太久：{int(age_minutes)}分钟"
+
+
+def score_news(title, summary, source, rss_url, published_dt=None):
+    # 重要：这里只能用标题和摘要评分，不能把 RSS 源标题 / 查询词算进去。
+    # 否则 Reddit search 源里的 “banned OR verification” 会导致无关帖子误判。
     text = f"{title} {summary}"
 
     source_profile = get_source_profile(source, rss_url)
@@ -701,6 +865,7 @@ def score_news(title, summary, source, rss_url):
     multi_hits = matched_keywords(text, MULTI_REPORT_KEYWORDS)
     low_value_hits = matched_keywords(text, LOW_VALUE_KEYWORDS)
     block_hits = matched_keywords(text, BLOCK_KEYWORDS)
+    preferred_hits = matched_keywords(text, PREFERRED_RISK_KEYWORDS)
 
     score = 0
     reasons = []
@@ -733,6 +898,7 @@ def score_news(title, summary, source, rss_url):
     verification_related = any(k in lower_text for k in [
         "二次验证",
         "二验",
+        "三次验证",
         "重新验证",
         "需要验证",
         "强制验证",
@@ -749,21 +915,25 @@ def score_news(title, summary, source, rss_url):
         special_combo_score += 12
         reasons.append("Codex + 接码/验证特殊关注 +12")
 
-    preferred_hits = matched_keywords(text, PREFERRED_RISK_KEYWORDS)
     if preferred_hits:
-        preferred_score = min(18, 6 + len(preferred_hits[:6]) * 2)
+        preferred_score = min(20, 8 + len(preferred_hits[:6]) * 2)
         special_combo_score += preferred_score
         reasons.append(f"你关注的 PP/接码/二验风险词 +{preferred_score}：{', '.join(preferred_hits[:6])}")
 
     combo_hit_count = 0
+
     for combo in PREFERRED_RISK_COMBO_HINTS:
         if all(part.lower() in lower_text for part in combo):
             combo_hit_count += 1
 
     if combo_hit_count:
-        combo_score = min(18, combo_hit_count * 6)
+        combo_score = min(20, combo_hit_count * 7)
         special_combo_score += combo_score
         reasons.append(f"你关注的风险组合命中 +{combo_score}")
+
+    if source_profile["name"] == "Linux.do" and preferred_hits:
+        special_combo_score += 8
+        reasons.append("Linux.do + 你关注主题 +8")
 
     score += special_combo_score
 
@@ -806,32 +976,37 @@ def score_news(title, summary, source, rss_url):
     evidence_score = max(-12, min(18, evidence_score))
     score += evidence_score
 
-    freshness_score = 0
+    age_minutes = get_age_minutes(published_dt)
+    freshness_score, freshness_reason = time_score_from_age(age_minutes)
+    score += freshness_score
+    reasons.append(freshness_reason)
+
+    source_freshness_score = 0
 
     if "aihot.virxact.com/feed.xml" in rss_url:
-        freshness_score += 4
+        source_freshness_score += 4
         reasons.append("AIHOT 精选 +4")
     elif "aihot.virxact.com/feed/daily.xml" in rss_url:
-        freshness_score += 2
+        source_freshness_score += 2
         reasons.append("AIHOT 日报 +2")
     elif "github.blog/changelog/label/copilot/feed" in rss_url:
-        freshness_score += 5
+        source_freshness_score += 5
         reasons.append("Copilot 官方变更流 +5")
     elif "openai.com/news/rss.xml" in rss_url:
-        freshness_score += 4
+        source_freshness_score += 4
         reasons.append("OpenAI 官方新闻流 +4")
     elif "releases.atom" in rss_url:
-        freshness_score += 5
+        source_freshness_score += 5
         reasons.append("官方发布流 +5")
     elif "latest" in rss_url or "newest" in rss_url or "issues.atom" in rss_url:
-        freshness_score += 4
+        source_freshness_score += 4
         reasons.append("最新流 +4")
     elif "top" in rss_url:
-        freshness_score += 3
+        source_freshness_score += 3
         reasons.append("热门流 +3")
 
-    freshness_score = min(freshness_score, 5)
-    score += freshness_score
+    source_freshness_score = min(source_freshness_score, 5)
+    score += source_freshness_score
 
     penalty = 0
 
@@ -856,8 +1031,8 @@ def score_news(title, summary, source, rss_url):
         reasons.append("泛 AI 源无核心主题 -20")
 
     if source_profile["name"] == "Reddit" and not core_hits and not critical_hits:
-        penalty += 18
-        reasons.append("Reddit 搜索结果无核心主题 -18")
+        penalty += 25
+        reasons.append("Reddit 搜索结果无核心主题 -25")
 
     score -= penalty
     score = clamp_score(score)
@@ -865,6 +1040,9 @@ def score_news(title, summary, source, rss_url):
     has_critical = bool(critical_hits)
 
     if source_profile["authority"] >= 21:
+        has_strong_evidence = True
+
+    if multi_hits:
         has_strong_evidence = True
 
     level = level_from_score(score, has_critical, has_strong_evidence)
@@ -885,6 +1063,8 @@ def score_news(title, summary, source, rss_url):
         "multi_hits": multi_hits,
         "low_value_hits": low_value_hits,
         "block_hits": block_hits,
+        "preferred_hits": preferred_hits,
+        "has_preferred_signal": bool(preferred_hits or combo_hit_count),
         "has_critical": has_critical,
         "has_strong_evidence": has_strong_evidence,
     }
@@ -900,15 +1080,27 @@ def should_skip_by_rules(score_info):
         return True, f"评分低于规则筛选线：{score}"
 
     if score < MIN_PUSH_SCORE:
+        if score_info.get("has_preferred_signal") and score >= PREFERRED_ALLOW_JUDGE_SCORE:
+            return False, ""
+
         return True, f"评分低于最终推送线：{score}"
 
     if score_info["single_hits"] and score < MIN_SINGLE_REPORT_SCORE:
+        if score_info.get("has_preferred_signal") and score >= PREFERRED_ALLOW_JUDGE_SCORE:
+            return False, ""
+
         return True, f"单点反馈分数不足：{score}"
 
     if score_info["medium_hits"] and not score_info["core_hits"] and score < MIN_GENERAL_AI_SCORE:
+        if score_info.get("has_preferred_signal"):
+            return False, ""
+
         return True, f"普通 AI 新闻分数不足：{score}"
 
     if not score_info["core_hits"] and not score_info["critical_hits"] and score < MIN_GENERAL_AI_SCORE:
+        if score_info.get("has_preferred_signal"):
+            return False, ""
+
         return True, f"非核心主题分数不足：{score}"
 
     return False, ""
@@ -916,7 +1108,7 @@ def should_skip_by_rules(score_info):
 
 def fetch_feed(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/7.0"
+        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/8.0"
     }
 
     try:
@@ -1006,22 +1198,28 @@ def normalize_ai_judgement(data, score_info):
         should_push = True
         risk = "高"
 
+    if score_info.get("has_preferred_signal") and score >= MIN_PUSH_SCORE:
+        if confidence == "低":
+            confidence = "中"
+        should_push = bool(should_push)
+
     if HIGH_QUALITY_ONLY:
-        if score < MIN_PUSH_SCORE:
+        if score < MIN_PUSH_SCORE and not (score_info.get("has_preferred_signal") and score >= PREFERRED_ALLOW_JUDGE_SCORE):
             should_push = False
             action = "可忽略"
 
-        if confidence == "低" and score < HIGH_SCORE_SEND_BYPASS:
+        if confidence == "低" and score < HIGH_SCORE_SEND_BYPASS and not score_info.get("has_preferred_signal"):
             should_push = False
             action = "可忽略"
 
-        if risk == "低" and score < MIN_GENERAL_AI_SCORE:
+        if risk == "低" and score < MIN_GENERAL_AI_SCORE and not score_info.get("has_preferred_signal"):
             should_push = False
             action = "可忽略"
 
         if scope in ["单点反馈", "未确认"] and score < MIN_SINGLE_REPORT_SCORE:
-            should_push = False
-            action = "可忽略"
+            if not (score_info.get("has_preferred_signal") and score >= PREFERRED_ALLOW_JUDGE_SCORE):
+                should_push = False
+                action = "可忽略"
 
     return {
         "should_push": bool(should_push),
@@ -1036,11 +1234,12 @@ def normalize_ai_judgement(data, score_info):
     }
 
 
-def ai_judge_news(title, summary, source, link, score_info):
+def ai_judge_news(title, summary, source, link, score_info, related_updates=None):
     if not DEEPSEEK_API_KEY:
         return default_ai_judgement(score_info), "no_api_key"
 
     source_profile = score_info["source_profile"]
+    related_updates = related_updates or []
 
     system_prompt = """你是一个 AI 情报雷达的第一层审核器。
 你只输出 JSON，不输出任何解释文字。
@@ -1060,6 +1259,7 @@ def ai_judge_news(title, summary, source, link, score_info):
 9. Reddit 搜索结果如果只是普通聊天、提示词、娱乐、观点，不要推送。
 10. 如果 score >= 88 且确实与核心主题相关，可以更积极推送。
 11. 用户特别偏好这类情报：pp又复活、pp渠道疑似拉闸、注册成功瞬间变回free、gpt登录二次验证、手机号随机、手搓接码、巴西/智利/hero sms/WhatsApp 接码反馈。命中这些时更积极推送，但仍然要写成风险观察，不要写教程。
+12. 如果 related_updates 里有同类反馈，可以把 scope 评为“多点反馈”或“社区多点反馈”，但不能写官方确认。
 
 必须输出合法 JSON，格式示例：
 {
@@ -1089,6 +1289,7 @@ def ai_judge_news(title, summary, source, link, score_info):
 - medium_hits: {score_info["medium_hits"]}
 - single_hits: {score_info["single_hits"]}
 - multi_hits: {score_info["multi_hits"]}
+- preferred_hits: {score_info.get("preferred_hits", [])}
 
 中高质量推送标准：
 - 70 分以上才有资格推送。
@@ -1105,6 +1306,9 @@ def ai_judge_news(title, summary, source, link, score_info):
 来源：{source}
 链接：{link}
 摘要：{short_text(summary, 1800)}
+
+同类合并反馈：
+{json.dumps(related_updates, ensure_ascii=False)[:1600]}
 """
 
     try:
@@ -1143,7 +1347,9 @@ def ai_judge_news(title, summary, source, link, score_info):
         return default_ai_judgement(score_info), "exception"
 
 
-def fallback_message(title, summary, source, link, score_info, ai_judgement, published_time="未知"):
+def fallback_message(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
+    related_updates = related_updates or []
+
     level = score_info["level"]
     score = score_info["score"]
     rating = score_info["rating"]
@@ -1167,6 +1373,13 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement, pub
 
     reason_text = "、".join(reasons[:5]) if reasons else "公开来源自动抓取"
 
+    related_text = ""
+    if related_updates:
+        lines = []
+        for update in related_updates[:MAX_RELATED_UPDATES_IN_CARD]:
+            lines.append(f"- {update.get('published_time', '未知')}：{short_text(update.get('title', ''), 80)}")
+        related_text = "\n\n💬 同类补充：\n" + "\n".join(lines)
+
     return f"""{prefix} {short_text(title_text, 80)}
 
 {level_icon(level)} 兴趣等级：{level}
@@ -1184,7 +1397,7 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement, pub
 - 触发原因：{reason_text}
 
 ⚠️ 风险判断：{risk}
-- {reason}
+- {reason}{related_text}
 
 可信度：{confidence}
 理由：来自公开来源，需结合更多反馈继续观察。
@@ -1194,7 +1407,39 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement, pub
 链接：{link}"""
 
 
-def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, published_time="未知"):
+def build_related_updates_text(related_updates):
+    if not related_updates:
+        return "无"
+
+    lines = []
+
+    for update in related_updates[:MAX_RELATED_UPDATES_IN_CARD]:
+        lines.append(
+            f"- {update.get('published_time', '未知')}｜{short_text(update.get('title', ''), 90)}｜{update.get('source', '')}"
+        )
+
+    return "\n".join(lines)
+
+
+def remove_duplicate_interest_lines(text):
+    lines = text.splitlines()
+    result = []
+    interest_seen = False
+
+    for line in lines:
+        if "兴趣等级：" in line:
+            if interest_seen:
+                continue
+            interest_seen = True
+
+        result.append(line)
+
+    return "\n".join(result).strip()
+
+
+def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
+    related_updates = related_updates or []
+
     level = score_info["level"]
     score = score_info["score"]
     rating = score_info["rating"]
@@ -1207,9 +1452,13 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
     no_hype_title = ai_judgement.get("no_hype_title", "")
     judge_reason = ai_judgement.get("reason", "")
 
+    display_title = no_hype_title or title
+
     if not DEEPSEEK_API_KEY:
         print("DEEPSEEK_API_KEY not set, use fallback message.")
-        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time)
+        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time, related_updates)
+
+    related_text = build_related_updates_text(related_updates)
 
     raw_content = short_text(
         f"""
@@ -1218,6 +1467,9 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
 发布时间：{published_time}
 摘要：{summary}
 链接：{link}
+
+同类合并反馈：
+{related_text}
 
 规则评分：
 兴趣等级：{level}
@@ -1230,11 +1482,12 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
 普通主题命中：{score_info.get("medium_hits")}
 单点反馈命中：{score_info.get("single_hits")}
 多人反馈命中：{score_info.get("multi_hits")}
+偏好命中：{score_info.get("preferred_hits")}
 
 AI 预判：
 {json.dumps(ai_judgement, ensure_ascii=False)}
 """,
-        4800
+        5200
     )
 
     system_prompt = """你是一个飞书 AI 情报频道的中文编辑。
@@ -1252,28 +1505,22 @@ AI 预判：
 9. 标题要短、准，不标题党。
 10. 输出适合飞书手机端阅读，不要太长。
 11. 宁可保守，不要夸大。
-12. 用户喜欢“图文情报卡”的风格：📌标题、兴趣等级、变化、成本/渠道/注意、关键信息、风险判断、评论补充、来源、发布时间、链接。
+12. 用户喜欢“图文情报卡”的风格：变化、成本/渠道、注意、关键信息、风险判断、评论补充、来源、发布时间、链接。
 13. 如果原文里没有成本/渠道/评论补充，就不要编造；可以省略对应小节。
+14. 不要输出“兴趣等级、评分、评级、建议”，这些由程序统一添加，避免重复。
+15. 如果有同类合并反馈，要在“💬 同类补充”中整理，不要当成多条重复消息。
 """
 
-    user_prompt = f"""请生成飞书情报卡片。
+    user_prompt = f"""请生成飞书情报卡片正文。
 
-系统判断：
-- 兴趣等级：{level}
-- 评分：{score}/100
-- 评级：{rating}
-- 类型：{category}
-- 范围：{scope}
-- 风险：{risk}
-- 可信度：{confidence}
-- 建议：{action}
-- 不夸大标题参考：{no_hype_title}
-- 判断理由：{judge_reason}
+程序会自动添加这个统一头部，你不要重复输出：
+📌 {short_text(display_title, 60)}
+{level_icon(level)} 兴趣等级：{level}
+🔥 评分：{score}/100
+🏷 评级：{rating}
+📌 建议：{action}
 
-输出风格参考：
-📌 标题
-
-🔴/🟡 兴趣等级：高/中
+你只输出以下正文部分，可按需要省略没有依据的小节：
 
 📝 变化：
 - 写清楚发生了什么
@@ -1285,25 +1532,22 @@ AI 预判：
 - 写不确定性、并非所有人都有、单点反馈等限制
 
 🔎 关键信息：
-- 类型：
-- 范围：
-- 影响：
+- 类型：{category}
+- 范围：{scope}
+- 影响：一句话说明影响
 
 🧯 风险判断：
 - 保守判断，不夸大
 
-💬 评论补充：
-- 只有原文有评论/社区补充才写
+💬 同类补充：
+- 有同类合并反馈时才写
 
-可信度：高/中/低
+可信度：{confidence}
 理由：一句话
 
-来源：{source}
-发布时间：{published_time}
-链接：{link}
+不要输出来源、发布时间、链接，程序会统一添加到底部。
 
 要求：
-- 标题尽量 30 字以内
 - 不要输出教程
 - 不要教人怎么买接码、怎么绕验证、怎么保号
 - 不要把单点反馈写成全网事件
@@ -1335,25 +1579,29 @@ AI 预判：
 
         if response.status_code != 200:
             print("DeepSeek summary failed:", response.status_code, response.text[:500])
-            return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time)
+            return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time, related_updates)
 
         data = response.json()
-        content = data["choices"][0]["message"]["content"].strip()
+        body = data["choices"][0]["message"]["content"].strip()
+        body = remove_duplicate_interest_lines(body)
 
-        if "发布时间：" not in content:
-            content = content.rstrip() + f"\n\n发布时间：{published_time}"
+        header = f"""📌 {short_text(display_title, 60)}
 
-        if "链接：" not in content:
-            content = content.rstrip() + f"\n链接：{link}"
+{level_icon(level)} 兴趣等级：{level}
+🔥 评分：{score}/100
+🏷 评级：{rating}
+📌 建议：{action}"""
 
-        if f"评分：{score}/100" not in content:
-            content = f"{level_icon(level)} 兴趣等级：{level}\n🔥 评分：{score}/100\n🏷 评级：{rating}\n📌 建议：{action}\n\n{content}"
+        footer = f"""来源：{source}
+发布时间：{published_time}
+链接：{link}"""
 
-        return content
+        content = f"{header}\n\n{body}\n\n{footer}"
+        return content[:3800]
 
     except Exception as e:
         print("DeepSeek summary exception:", e)
-        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time)
+        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time, related_updates)
 
 
 def send_feishu(message):
@@ -1411,20 +1659,102 @@ def should_stop_sending(sent_count, next_score):
     return True
 
 
+def should_merge_candidates(a, b):
+    if not MERGE_SIMILAR_EVENTS:
+        return False
+
+    if a.get("theme") != "general" and a.get("theme") == b.get("theme"):
+        if similarity(a.get("title", ""), b.get("title", "")) >= 0.35:
+            return True
+
+        a_text = f"{a.get('title', '')} {a.get('summary', '')}"
+        b_text = f"{b.get('title', '')} {b.get('summary', '')}"
+
+        if similarity(a_text, b_text) >= MERGE_SIMILARITY_THRESHOLD:
+            return True
+
+    if similarity(a.get("title", ""), b.get("title", "")) >= 0.84:
+        return True
+
+    return False
+
+
+def merge_related_candidates(candidates):
+    if not MERGE_SIMILAR_EVENTS:
+        return candidates
+
+    merged = []
+
+    for item in candidates:
+        placed = False
+
+        for group in merged:
+            if should_merge_candidates(group, item):
+                group.setdefault("related_updates", [])
+
+                group["related_updates"].append({
+                    "title": item["title"],
+                    "source": item["source"],
+                    "link": item["link"],
+                    "published_time": item.get("published_time", "未知"),
+                    "score": item["score"],
+                })
+
+                if item["score"] > group["score"]:
+                    previous_main = {
+                        "title": group["title"],
+                        "source": group["source"],
+                        "link": group["link"],
+                        "published_time": group.get("published_time", "未知"),
+                        "score": group["score"],
+                    }
+
+                    group["related_updates"].append(previous_main)
+
+                    for key in [
+                        "priority",
+                        "score",
+                        "uid",
+                        "title",
+                        "summary",
+                        "source",
+                        "link",
+                        "published_time",
+                        "published_dt",
+                        "score_info",
+                        "theme",
+                    ]:
+                        group[key] = item[key]
+
+                placed = True
+                break
+
+        if not placed:
+            copied = dict(item)
+            copied["related_updates"] = []
+            merged.append(copied)
+
+    merged.sort(key=lambda item: (item["priority"], -item["score"]))
+    return merged
+
+
 def main():
     print("DEEPSEEK_API_KEY set:", bool(DEEPSEEK_API_KEY))
     print("FEISHU_WEBHOOK set:", bool(FEISHU_WEBHOOK))
     print("FEISHU_WEBHOOK length:", len(FEISHU_WEBHOOK))
     print("HIGH_QUALITY_ONLY:", HIGH_QUALITY_ONLY)
+    print("HOT_WINDOW_HOURS:", HOT_WINDOW_HOURS)
     print("MIN_RULE_SCORE:", MIN_RULE_SCORE)
     print("MIN_PUSH_SCORE:", MIN_PUSH_SCORE)
     print("MIN_SINGLE_REPORT_SCORE:", MIN_SINGLE_REPORT_SCORE)
     print("MIN_GENERAL_AI_SCORE:", MIN_GENERAL_AI_SCORE)
+    print("PREFERRED_ALLOW_JUDGE_SCORE:", PREFERRED_ALLOW_JUDGE_SCORE)
     print("SOFT_SEND_LIMIT:", SOFT_SEND_LIMIT)
     print("HIGH_SCORE_SEND_BYPASS:", HIGH_SCORE_SEND_BYPASS)
     print("HARD_SEND_LIMIT:", HARD_SEND_LIMIT)
     print("MAX_JUDGE_COUNT:", MAX_JUDGE_COUNT)
     print("SEND_EMPTY_HEARTBEAT:", SEND_EMPTY_HEARTBEAT)
+    print("MERGE_SIMILAR_EVENTS:", MERGE_SIMILAR_EVENTS)
 
     seen = load_seen()
     new_seen = set(seen)
@@ -1433,6 +1763,7 @@ def main():
     accepted_titles = []
 
     skipped_rule_count = 0
+    skipped_time_count = 0
     skipped_similar_count = 0
     skipped_ai_count = 0
     failed_feed_count = 0
@@ -1487,7 +1818,15 @@ def main():
                 new_seen.add(uid)
                 continue
 
-            score_info = score_news(title, summary, source, rss_url)
+            score_info = score_news(title, summary, source, rss_url, published_dt)
+
+            ignore_by_time, time_reason = should_ignore_by_time(published_dt, score_info, title, summary)
+            if ignore_by_time:
+                skipped_time_count += 1
+                feed_skipped += 1
+                print(f"Skip by time: {short_text(title, 80)} | {time_reason}")
+                new_seen.add(uid)
+                continue
 
             skip, skip_reason = should_skip_by_rules(score_info)
 
@@ -1514,6 +1853,8 @@ def main():
                 "source": source,
                 "link": link,
                 "published_time": published_time,
+                "published_dt": published_dt,
+                "theme": get_event_theme(title, summary),
                 "score_info": score_info,
             })
 
@@ -1530,6 +1871,12 @@ def main():
         })
 
     candidates.sort(key=lambda item: (item["priority"], -item["score"]))
+    original_candidate_count = len(candidates)
+
+    candidates = merge_related_candidates(candidates)
+
+    print(f"Candidates before merge: {original_candidate_count}")
+    print(f"Candidates after merge: {len(candidates)}")
 
     sent_count = 0
     judged_count = 0
@@ -1549,12 +1896,15 @@ def main():
             )
             break
 
+        related_updates = item.get("related_updates", [])
+
         ai_judgement, judge_status = ai_judge_news(
             item["title"],
             item["summary"],
             item["source"],
             item["link"],
             item["score_info"],
+            related_updates,
         )
 
         judged_count += 1
@@ -1562,6 +1912,12 @@ def main():
         print(
             "AI judge:",
             judge_status,
+            "| score=",
+            item["score"],
+            "| theme=",
+            item.get("theme"),
+            "| related=",
+            len(related_updates),
             "| push=",
             ai_judgement.get("should_push"),
             "| risk=",
@@ -1575,6 +1931,11 @@ def main():
         if not ai_judgement.get("should_push", False):
             skipped_ai_count += 1
             new_seen.add(item["uid"])
+
+            for related in related_updates:
+                if related.get("link"):
+                    new_seen.add(item_id(related.get("title", ""), related.get("link", "")))
+
             print(f"Skip by AI judge: {short_text(item['title'], 80)} | {ai_judgement.get('reason')}")
             continue
 
@@ -1586,11 +1947,16 @@ def main():
             item["score_info"],
             ai_judgement,
             item.get("published_time", "未知"),
+            related_updates,
         )
 
         success = send_feishu(message)
 
         new_seen.add(item["uid"])
+
+        for related in related_updates:
+            if related.get("link"):
+                new_seen.add(item_id(related.get("title", ""), related.get("link", "")))
 
         if success:
             sent_count += 1
@@ -1606,9 +1972,11 @@ def main():
             f"{status} | entries={stat['entries']} | accepted={stat['accepted']} | skipped={stat['skipped']} | {stat['url']}"
         )
 
-    summary_text = f"""候选：{len(candidates)}
+    summary_text = f"""候选：{original_candidate_count}
+合并后候选：{len(candidates)}
 AI 判断：{judged_count}
 规则跳过：{skipped_rule_count}
+时间跳过：{skipped_time_count}
 AI 跳过：{skipped_ai_count}
 相似跳过：{skipped_similar_count}
 失败源：{failed_feed_count}
