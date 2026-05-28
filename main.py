@@ -26,7 +26,7 @@ HIGH_QUALITY_ONLY = True
 # 重点抓取过去 1 小时热点
 HOT_WINDOW_HOURS = 1
 
-# 旧内容宽限：超过 1 小时但低于 3 小时，只有强偏好/官方事故/高分才可能进入
+# 超过 1 小时但不超过 3 小时：只有强偏好 / 官方事故 / 高分才继续
 OLD_ITEM_GRACE_HOURS = 3
 
 # 规则评分低于这个值：直接跳过，不进入 AI 判断
@@ -66,6 +66,23 @@ SEND_EMPTY_HEARTBEAT = False
 MERGE_SIMILAR_EVENTS = True
 MERGE_SIMILARITY_THRESHOLD = 0.78
 MAX_RELATED_UPDATES_IN_CARD = 4
+
+
+# =========================
+# 分数上限：解决“单点反馈全是 100 分”的问题
+# =========================
+CAP_SINGLE_REPORT = 88
+CAP_WEAK_SINGLE_REPORT = 82
+CAP_DELETED_OR_INCOMPLETE = 82
+CAP_UNCONFIRMED_NO_MULTI = 90
+CAP_GENERAL_AI = 78
+CAP_REDDIT_SINGLE = 84
+
+# 只有这些情况可以突破 92：
+# 1. 官方状态 / 官方仓库明确事故
+# 2. 多人反馈 / 批量反馈
+# 3. 严重关键词 + 强证据
+HIGH_CONFIDENCE_BREAKTHROUGH_SCORE = 92
 
 
 # =========================
@@ -122,12 +139,17 @@ PREFERRED_RISK_KEYWORDS = [
     "whatsapp",
     "巴西",
     "智利",
+    "印尼",
+    "印度尼西亚",
     "美国号码",
     "同一号码",
     "绑 3 次",
     "绑定 3 次",
     "成功率",
     "很快",
+    "耗尽",
+    "库存",
+    "号码被消耗",
     "401",
     "403",
     "AT",
@@ -162,6 +184,7 @@ PREFERRED_RISK_COMBO_HINTS = [
     ["手搓接码", "巴西"],
     ["hero sms", "号码"],
     ["hero sms", "二次验证"],
+    ["hero sms", "印尼"],
     ["whatsapp", "验证码"],
     ["401", "team"],
     ["401", "ak"],
@@ -374,6 +397,8 @@ CORE_TOPIC_KEYWORDS = [
     "随机手机号",
     "巴西",
     "智利",
+    "印尼",
+    "印度尼西亚",
     "hero sms",
     "Hero SMS",
     "WhatsApp",
@@ -399,6 +424,10 @@ CORE_TOPIC_KEYWORDS = [
     "Copilot Chat",
     "Copilot coding agent",
     "Claude Code",
+    "Claude Pro",
+    "Claude API",
+    "Tier3",
+    "Tier 3",
     "HERMES.md",
     "Gemini CLI",
     "billing",
@@ -486,6 +515,11 @@ SINGLE_REPORT_KEYWORDS = [
     "评论区",
     "个例",
     "个案",
+    "求助",
+    "请教",
+    "询问",
+    "问一下",
+    "想问",
     "one user",
     "single report",
     "unconfirmed",
@@ -510,6 +544,25 @@ MULTI_REPORT_KEYWORDS = [
     "many users",
     "multiple users",
     "widespread",
+]
+
+
+WEAK_SIGNAL_KEYWORDS = [
+    "帖子已删",
+    "已删除",
+    "删除了",
+    "原帖已删",
+    "原帖已删除",
+    "无具体",
+    "没有具体",
+    "不清楚",
+    "不确定",
+    "求助",
+    "请教",
+    "询问",
+    "问一下",
+    "有没有",
+    "信息差",
 ]
 
 
@@ -685,7 +738,7 @@ def get_source_profile(source, rss_url):
         return {"name": "OpenAI News", "authority": 20, "type": "A类 / OpenAI 官方新闻"}
 
     if "linux.do" in text:
-        return {"name": "Linux.do", "authority": 24, "type": "B类 / 中文社区一线反馈"}
+        return {"name": "Linux.do", "authority": 22, "type": "B类 / 中文社区一线反馈"}
 
     if "reddit.com" in text:
         return {"name": "Reddit", "authority": 14, "type": "B类 / 海外社区反馈"}
@@ -770,7 +823,7 @@ def get_event_theme(title, summary):
         theme_parts.append("pp")
     if any(k in text for k in ["free", "变回free", "plus变free"]):
         theme_parts.append("free")
-    if any(k in text for k in ["接码", "手机号", "短信", "text message", "hero sms", "whatsapp", "巴西", "智利"]):
+    if any(k in text for k in ["接码", "手机号", "短信", "text message", "hero sms", "whatsapp", "巴西", "智利", "印尼"]):
         theme_parts.append("phone_verification")
     if any(k in text for k in ["二次验证", "二验", "三次验证", "强验", "重新验证"]):
         theme_parts.append("mfa")
@@ -778,6 +831,8 @@ def get_event_theme(title, summary):
         theme_parts.append("codex")
     if "team" in text:
         theme_parts.append("team")
+    if "claude" in text:
+        theme_parts.append("claude")
     if any(k in text for k in ["401", "403", "oauth", "access token", "refresh token", "at", "rt", "session", "auth.json"]):
         theme_parts.append("token_401")
     if any(k in text for k in ["额度", "quota", "rate limit", "weekly limit", "5h"]):
@@ -810,16 +865,16 @@ def time_score_from_age(age_minutes):
         return 2, "发布时间未知 +2"
 
     if age_minutes <= 15:
-        return 10, "0-15分钟热点 +10"
+        return 8, "0-15分钟热点 +8"
 
     if age_minutes <= 30:
-        return 8, "15-30分钟热点 +8"
+        return 6, "15-30分钟热点 +6"
 
     if age_minutes <= 60:
-        return 6, "30-60分钟热点 +6"
+        return 4, "30-60分钟热点 +4"
 
     if age_minutes <= OLD_ITEM_GRACE_HOURS * 60:
-        return 2, "1-3小时旧热点 +2"
+        return 1, "1-3小时旧热点 +1"
 
     return 0, "超过3小时 +0"
 
@@ -851,6 +906,81 @@ def should_ignore_by_time(published_dt, score_info, title, summary):
     return True, f"超过热点窗口太久：{int(age_minutes)}分钟"
 
 
+def is_deleted_or_incomplete(title, summary):
+    text = f"{title} {summary}"
+    hits = matched_keywords(text, WEAK_SIGNAL_KEYWORDS)
+
+    if hits:
+        return True, hits
+
+    return False, []
+
+
+def apply_score_caps(score, score_info, title, summary):
+    text = f"{title} {summary}"
+    source_profile = score_info["source_profile"]
+
+    single_hits = score_info["single_hits"]
+    multi_hits = score_info["multi_hits"]
+    preferred_hits = score_info.get("preferred_hits", [])
+    has_preferred = score_info.get("has_preferred_signal", False)
+    has_critical = score_info.get("has_critical", False)
+    has_strong_evidence = score_info.get("has_strong_evidence", False)
+    core_hits = score_info.get("core_hits", [])
+    medium_hits = score_info.get("medium_hits", [])
+
+    deleted_or_incomplete, weak_hits = is_deleted_or_incomplete(title, summary)
+
+    cap_reasons = []
+
+    is_officialish = source_profile["authority"] >= 21
+    is_multi_confirmed = bool(multi_hits)
+    can_break_92 = bool(
+        (is_officialish and has_critical)
+        or (is_multi_confirmed and has_critical)
+        or (has_strong_evidence and has_critical)
+    )
+
+    if not can_break_92:
+        if score > CAP_UNCONFIRMED_NO_MULTI:
+            score = CAP_UNCONFIRMED_NO_MULTI
+            cap_reasons.append(f"未确认/非官方强证据上限 {CAP_UNCONFIRMED_NO_MULTI}")
+
+    if single_hits and not multi_hits:
+        if has_preferred:
+            if score > CAP_SINGLE_REPORT:
+                score = CAP_SINGLE_REPORT
+                cap_reasons.append(f"单点偏好反馈上限 {CAP_SINGLE_REPORT}")
+        else:
+            if score > CAP_WEAK_SINGLE_REPORT:
+                score = CAP_WEAK_SINGLE_REPORT
+                cap_reasons.append(f"普通单点反馈上限 {CAP_WEAK_SINGLE_REPORT}")
+
+    if deleted_or_incomplete:
+        if score > CAP_DELETED_OR_INCOMPLETE:
+            score = CAP_DELETED_OR_INCOMPLETE
+            cap_reasons.append(f"已删/信息不完整上限 {CAP_DELETED_OR_INCOMPLETE}：{', '.join(weak_hits[:3])}")
+
+    if source_profile["name"] == "Reddit" and not multi_hits:
+        if score > CAP_REDDIT_SINGLE:
+            score = CAP_REDDIT_SINGLE
+            cap_reasons.append(f"Reddit 单点上限 {CAP_REDDIT_SINGLE}")
+
+    if medium_hits and not core_hits and not preferred_hits and not has_critical:
+        if score > CAP_GENERAL_AI:
+            score = CAP_GENERAL_AI
+            cap_reasons.append(f"普通泛 AI 内容上限 {CAP_GENERAL_AI}")
+
+    # 只有真正强证据才允许满分附近
+    if score >= 96 and not can_break_92:
+        score = 92
+        cap_reasons.append("非官方/非多人确认，不允许接近满分")
+
+    score = clamp_score(score)
+
+    return score, cap_reasons
+
+
 def score_news(title, summary, source, rss_url, published_dt=None):
     # 重要：这里只能用标题和摘要评分，不能把 RSS 源标题 / 查询词算进去。
     # 否则 Reddit search 源里的 “banned OR verification” 会导致无关帖子误判。
@@ -877,18 +1007,18 @@ def score_news(title, summary, source, rss_url, published_dt=None):
     topic_score = 0
 
     if core_hits:
-        topic_score += 24
-        reasons.append(f"核心主题 +24：{', '.join(core_hits[:5])}")
+        topic_score += 20
+        reasons.append(f"核心主题 +20：{', '.join(core_hits[:5])}")
 
     if medium_hits:
-        topic_score += 8
-        reasons.append(f"普通 AI 主题 +8：{', '.join(medium_hits[:4])}")
+        topic_score += 6
+        reasons.append(f"普通 AI 主题 +6：{', '.join(medium_hits[:4])}")
 
     if len(core_hits) >= 2:
-        topic_score += 6
-        reasons.append("多个核心主题 +6")
+        topic_score += 4
+        reasons.append("多个核心主题 +4")
 
-    topic_score = min(topic_score, 32)
+    topic_score = min(topic_score, 26)
     score += topic_score
 
     special_combo_score = 0
@@ -912,11 +1042,11 @@ def score_news(title, summary, source, rss_url, published_dt=None):
     ])
 
     if codex_related and verification_related:
-        special_combo_score += 12
-        reasons.append("Codex + 接码/验证特殊关注 +12")
+        special_combo_score += 8
+        reasons.append("Codex + 接码/验证特殊关注 +8")
 
     if preferred_hits:
-        preferred_score = min(20, 8 + len(preferred_hits[:6]) * 2)
+        preferred_score = min(14, 6 + len(preferred_hits[:4]) * 2)
         special_combo_score += preferred_score
         reasons.append(f"你关注的 PP/接码/二验风险词 +{preferred_score}：{', '.join(preferred_hits[:6])}")
 
@@ -927,53 +1057,53 @@ def score_news(title, summary, source, rss_url, published_dt=None):
             combo_hit_count += 1
 
     if combo_hit_count:
-        combo_score = min(20, combo_hit_count * 7)
+        combo_score = min(14, combo_hit_count * 5)
         special_combo_score += combo_score
         reasons.append(f"你关注的风险组合命中 +{combo_score}")
 
     if source_profile["name"] == "Linux.do" and preferred_hits:
-        special_combo_score += 8
-        reasons.append("Linux.do + 你关注主题 +8")
+        special_combo_score += 5
+        reasons.append("Linux.do + 你关注主题 +5")
 
     score += special_combo_score
 
     severity_score = 0
 
     if critical_hits:
-        severity_score += 26
-        reasons.append(f"严重事件 +26：{', '.join(critical_hits[:4])}")
+        severity_score += 18
+        reasons.append(f"严重事件 +18：{', '.join(critical_hits[:4])}")
     elif any(k.lower() in text.lower() for k in ["rate limit", "quota", "billing", "refund", "verification", "401", "403"]):
-        severity_score += 14
-        reasons.append("额度/计费/验证/错误码异常 +14")
+        severity_score += 10
+        reasons.append("额度/计费/验证/错误码异常 +10")
     elif core_hits:
-        severity_score += 8
-        reasons.append("核心主题一般事件 +8")
+        severity_score += 6
+        reasons.append("核心主题一般事件 +6")
 
-    severity_score = min(severity_score, 26)
+    severity_score = min(severity_score, 18)
     score += severity_score
 
     evidence_score = 0
     has_strong_evidence = False
 
     if source_profile["authority"] >= 21:
-        evidence_score += 12
+        evidence_score += 8
         has_strong_evidence = True
-        reasons.append("官方/官方仓库来源 +12")
+        reasons.append("官方/高权重来源 +8")
 
     if source_profile["name"] == "Linux.do" and core_hits:
-        evidence_score += 6
-        reasons.append("Linux.do 核心主题 +6")
+        evidence_score += 4
+        reasons.append("Linux.do 核心主题 +4")
 
     if multi_hits:
-        evidence_score += 12
+        evidence_score += 14
         has_strong_evidence = True
-        reasons.append(f"多人/确认反馈 +12：{', '.join(multi_hits[:3])}")
+        reasons.append(f"多人/确认反馈 +14：{', '.join(multi_hits[:3])}")
 
     if single_hits:
-        evidence_score -= 8
-        reasons.append(f"单点/未确认反馈 -8：{', '.join(single_hits[:3])}")
+        evidence_score -= 10
+        reasons.append(f"单点/未确认反馈 -10：{', '.join(single_hits[:3])}")
 
-    evidence_score = max(-12, min(18, evidence_score))
+    evidence_score = max(-14, min(18, evidence_score))
     score += evidence_score
 
     age_minutes = get_age_minutes(published_dt)
@@ -984,28 +1114,28 @@ def score_news(title, summary, source, rss_url, published_dt=None):
     source_freshness_score = 0
 
     if "aihot.virxact.com/feed.xml" in rss_url:
-        source_freshness_score += 4
-        reasons.append("AIHOT 精选 +4")
-    elif "aihot.virxact.com/feed/daily.xml" in rss_url:
-        source_freshness_score += 2
-        reasons.append("AIHOT 日报 +2")
-    elif "github.blog/changelog/label/copilot/feed" in rss_url:
-        source_freshness_score += 5
-        reasons.append("Copilot 官方变更流 +5")
-    elif "openai.com/news/rss.xml" in rss_url:
-        source_freshness_score += 4
-        reasons.append("OpenAI 官方新闻流 +4")
-    elif "releases.atom" in rss_url:
-        source_freshness_score += 5
-        reasons.append("官方发布流 +5")
-    elif "latest" in rss_url or "newest" in rss_url or "issues.atom" in rss_url:
-        source_freshness_score += 4
-        reasons.append("最新流 +4")
-    elif "top" in rss_url:
         source_freshness_score += 3
-        reasons.append("热门流 +3")
+        reasons.append("AIHOT 精选 +3")
+    elif "aihot.virxact.com/feed/daily.xml" in rss_url:
+        source_freshness_score += 1
+        reasons.append("AIHOT 日报 +1")
+    elif "github.blog/changelog/label/copilot/feed" in rss_url:
+        source_freshness_score += 4
+        reasons.append("Copilot 官方变更流 +4")
+    elif "openai.com/news/rss.xml" in rss_url:
+        source_freshness_score += 3
+        reasons.append("OpenAI 官方新闻流 +3")
+    elif "releases.atom" in rss_url:
+        source_freshness_score += 4
+        reasons.append("官方发布流 +4")
+    elif "latest" in rss_url or "newest" in rss_url or "issues.atom" in rss_url:
+        source_freshness_score += 3
+        reasons.append("最新流 +3")
+    elif "top" in rss_url:
+        source_freshness_score += 2
+        reasons.append("热门流 +2")
 
-    source_freshness_score = min(source_freshness_score, 5)
+    source_freshness_score = min(source_freshness_score, 4)
     score += source_freshness_score
 
     penalty = 0
@@ -1035,7 +1165,6 @@ def score_news(title, summary, source, rss_url, published_dt=None):
         reasons.append("Reddit 搜索结果无核心主题 -25")
 
     score -= penalty
-    score = clamp_score(score)
 
     has_critical = bool(critical_hits)
 
@@ -1044,6 +1173,29 @@ def score_news(title, summary, source, rss_url, published_dt=None):
 
     if multi_hits:
         has_strong_evidence = True
+
+    score = clamp_score(score)
+
+    preliminary_info = {
+        "score": score,
+        "source_profile": source_profile,
+        "critical_hits": critical_hits,
+        "core_hits": core_hits,
+        "medium_hits": medium_hits,
+        "single_hits": single_hits,
+        "multi_hits": multi_hits,
+        "low_value_hits": low_value_hits,
+        "block_hits": block_hits,
+        "preferred_hits": preferred_hits,
+        "has_preferred_signal": bool(preferred_hits or combo_hit_count),
+        "has_critical": has_critical,
+        "has_strong_evidence": has_strong_evidence,
+    }
+
+    score, cap_reasons = apply_score_caps(score, preliminary_info, title, summary)
+
+    if cap_reasons:
+        reasons.extend([f"评分上限：{r}" for r in cap_reasons])
 
     level = level_from_score(score, has_critical, has_strong_evidence)
     rating = rating_from_score(score)
@@ -1108,7 +1260,7 @@ def should_skip_by_rules(score_info):
 
 def fetch_feed(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/8.0"
+        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/9.0"
     }
 
     try:
@@ -1194,7 +1346,7 @@ def normalize_ai_judgement(data, score_info):
 
     score = score_info["score"]
 
-    if score >= 92 and score_info["has_critical"]:
+    if score >= 92 and score_info["has_critical"] and score_info["has_strong_evidence"]:
         should_push = True
         risk = "高"
 
@@ -1258,8 +1410,9 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
 8. 不要标题党。
 9. Reddit 搜索结果如果只是普通聊天、提示词、娱乐、观点，不要推送。
 10. 如果 score >= 88 且确实与核心主题相关，可以更积极推送。
-11. 用户特别偏好这类情报：pp又复活、pp渠道疑似拉闸、注册成功瞬间变回free、gpt登录二次验证、手机号随机、手搓接码、巴西/智利/hero sms/WhatsApp 接码反馈。命中这些时更积极推送，但仍然要写成风险观察，不要写教程。
+11. 用户特别偏好这类情报：pp又复活、pp渠道疑似拉闸、注册成功瞬间变回free、gpt登录二次验证、手机号随机、手搓接码、巴西/智利/印尼/hero sms/WhatsApp 接码反馈。命中这些时更积极推送，但仍然要写成风险观察，不要写教程。
 12. 如果 related_updates 里有同类反馈，可以把 scope 评为“多点反馈”或“社区多点反馈”，但不能写官方确认。
+13. 如果只是求助/询问/帖子已删/信息不完整，应该降低 confidence，并说明信息不足。
 
 必须输出合法 JSON，格式示例：
 {
@@ -1509,6 +1662,7 @@ AI 预判：
 13. 如果原文里没有成本/渠道/评论补充，就不要编造；可以省略对应小节。
 14. 不要输出“兴趣等级、评分、评级、建议”，这些由程序统一添加，避免重复。
 15. 如果有同类合并反馈，要在“💬 同类补充”中整理，不要当成多条重复消息。
+16. 如果帖子已删、只是求助、只是单人询问，要明确“信息不完整/仅单点反馈”，不要夸大。
 """
 
     user_prompt = f"""请生成飞书情报卡片正文。
@@ -1526,10 +1680,10 @@ AI 预判：
 - 写清楚发生了什么
 
 💰 成本/渠道：
-- 只有原文出现价格、渠道、国家、hero sms、WhatsApp、巴西/智利等信息才写
+- 只有原文出现价格、渠道、国家、hero sms、WhatsApp、巴西/智利/印尼等信息才写
 
 ⚠️ 注意：
-- 写不确定性、并非所有人都有、单点反馈等限制
+- 写不确定性、并非所有人都有、单点反馈、帖子已删、信息不完整等限制
 
 🔎 关键信息：
 - 类型：{category}
@@ -1755,6 +1909,9 @@ def main():
     print("MAX_JUDGE_COUNT:", MAX_JUDGE_COUNT)
     print("SEND_EMPTY_HEARTBEAT:", SEND_EMPTY_HEARTBEAT)
     print("MERGE_SIMILAR_EVENTS:", MERGE_SIMILAR_EVENTS)
+    print("CAP_SINGLE_REPORT:", CAP_SINGLE_REPORT)
+    print("CAP_WEAK_SINGLE_REPORT:", CAP_WEAK_SINGLE_REPORT)
+    print("CAP_DELETED_OR_INCOMPLETE:", CAP_DELETED_OR_INCOMPLETE)
 
     seen = load_seen()
     new_seen = set(seen)
