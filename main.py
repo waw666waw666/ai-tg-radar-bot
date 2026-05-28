@@ -5,6 +5,8 @@ import hashlib
 import re
 from pathlib import Path
 from difflib import SequenceMatcher
+from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
 
 import requests
 import feedparser
@@ -50,6 +52,91 @@ MAX_ENTRIES_PER_FEED = 10
 
 # 没有高质量内容时不发任何消息
 SEND_EMPTY_HEARTBEAT = False
+
+
+# =========================
+# 你的重点偏好：PP / 接码 / 二验 / Free / 邮箱注册收紧
+# 只用于风险情报评分，不输出教程
+# =========================
+PREFERRED_RISK_KEYWORDS = [
+    "pp",
+    "PP",
+    "PayPal",
+    "paypal",
+    "无卡",
+    "pp无卡",
+    "PP无卡",
+    "PP渠道",
+    "pp渠道",
+    "pp又复活",
+    "PP又复活",
+    "复活",
+    "拉闸",
+    "疑似拉闸",
+    "变回free",
+    "变回 Free",
+    "free",
+    "Free",
+    "注册成功瞬间变回free",
+    "手搓接码",
+    "接码",
+    "接码平台",
+    "接码渠道",
+    "接码要怎么买",
+    "手机接码",
+    "手机号随机",
+    "随机手机号",
+    "二次验证",
+    "二验",
+    "强制二验",
+    "gpt登录二次验证",
+    "GPT登录二次验证",
+    "登录二次验证",
+    "所有邮箱都要接码",
+    "邮箱都要接码",
+    "邮箱注册",
+    "注册入口",
+    "手机号验证",
+    "短信验证",
+    "text message",
+    "hero sms",
+    "Hero SMS",
+    "sms",
+    "SMS",
+    "WhatsApp",
+    "whatsapp",
+    "巴西",
+    "智利",
+    "美国号码",
+    "同一号码",
+    "绑 3 次",
+    "绑定 3 次",
+    "401",
+    "AT",
+    "RT",
+    "session",
+    "auth.json",
+]
+
+PREFERRED_RISK_COMBO_HINTS = [
+    ["pp", "free"],
+    ["pp", "拉闸"],
+    ["pp", "401"],
+    ["pp", "无卡"],
+    ["paypal", "plus"],
+    ["gpt", "二次验证"],
+    ["gpt", "接码"],
+    ["chatgpt", "接码"],
+    ["chatgpt", "手机号"],
+    ["codex", "text message"],
+    ["codex", "接码"],
+    ["codex", "短信"],
+    ["邮箱", "接码"],
+    ["注册", "接码"],
+    ["手机号", "随机"],
+    ["手搓接码", "免费"],
+    ["hero sms", "号码"],
+]
 
 
 RSS_SOURCES = [
@@ -163,6 +250,23 @@ CRITICAL_EVENT_KEYWORDS = [
     "Pro 限制",
     "短信验证",
     "接码失败",
+    "手搓接码",
+    "接码渠道",
+    "接码平台",
+    "接码要怎么买",
+    "pp又复活",
+    "PP又复活",
+    "PP渠道",
+    "pp渠道",
+    "pp无卡",
+    "PP无卡",
+    "无卡",
+    "拉闸",
+    "疑似拉闸",
+    "变回free",
+    "注册成功瞬间变回free",
+    "所有邮箱都要接码",
+    "邮箱都要接码",
     "二次验证",
     "二验",
     "重新验证",
@@ -214,6 +318,34 @@ CORE_TOPIC_KEYWORDS = [
     "验证码",
     "短信验证",
     "接码失败",
+    "手搓接码",
+    "接码渠道",
+    "接码平台",
+    "接码要怎么买",
+    "pp",
+    "PP",
+    "PayPal",
+    "paypal",
+    "无卡",
+    "pp无卡",
+    "PP无卡",
+    "PP渠道",
+    "pp渠道",
+    "pp又复活",
+    "PP又复活",
+    "复活",
+    "拉闸",
+    "疑似拉闸",
+    "变回free",
+    "Free",
+    "free",
+    "邮箱接码",
+    "所有邮箱都要接码",
+    "手机号随机",
+    "随机手机号",
+    "巴西",
+    "hero sms",
+    "WhatsApp",
     "text message",
     "verification",
     "OAuth",
@@ -384,6 +516,43 @@ def short_text(text, limit=2500):
     return text[:limit] + "..."
 
 
+def format_datetime_for_feishu(dt):
+    if not dt:
+        return "未知"
+
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        beijing_dt = dt.astimezone(timezone(timedelta(hours=8)))
+        return beijing_dt.strftime("%Y-%m-%d %H:%M:%S 北京时间")
+    except Exception:
+        return "未知"
+
+
+def parse_entry_datetime(entry):
+    for key in ["published_parsed", "updated_parsed", "created_parsed"]:
+        value = entry.get(key)
+        if value:
+            try:
+                return datetime.fromtimestamp(time.mktime(value), tz=timezone.utc)
+            except Exception:
+                pass
+
+    for key in ["published", "updated", "created", "pubDate"]:
+        value = entry.get(key)
+        if value:
+            try:
+                dt = parsedate_to_datetime(value)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except Exception:
+                pass
+
+    return None
+
+
 def item_id(title, link):
     raw = f"{title}|{link}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -521,8 +690,6 @@ def action_from_score(score, level):
 
 
 def score_news(title, summary, source, rss_url):
-    # 重要：这里只能用标题和摘要评分，不能把 RSS 源标题 / 查询词算进去。
-    # 否则 Reddit search 源里的 “banned OR verification” 会导致无关帖子误判。
     text = f"{title} {summary}"
 
     source_profile = get_source_profile(source, rss_url)
@@ -581,6 +748,22 @@ def score_news(title, summary, source, rss_url):
     if codex_related and verification_related:
         special_combo_score += 12
         reasons.append("Codex + 接码/验证特殊关注 +12")
+
+    preferred_hits = matched_keywords(text, PREFERRED_RISK_KEYWORDS)
+    if preferred_hits:
+        preferred_score = min(18, 6 + len(preferred_hits[:6]) * 2)
+        special_combo_score += preferred_score
+        reasons.append(f"你关注的 PP/接码/二验风险词 +{preferred_score}：{', '.join(preferred_hits[:6])}")
+
+    combo_hit_count = 0
+    for combo in PREFERRED_RISK_COMBO_HINTS:
+        if all(part.lower() in lower_text for part in combo):
+            combo_hit_count += 1
+
+    if combo_hit_count:
+        combo_score = min(18, combo_hit_count * 6)
+        special_combo_score += combo_score
+        reasons.append(f"你关注的风险组合命中 +{combo_score}")
 
     score += special_combo_score
 
@@ -677,7 +860,6 @@ def score_news(title, summary, source, rss_url):
         reasons.append("Reddit 搜索结果无核心主题 -18")
 
     score -= penalty
-
     score = clamp_score(score)
 
     has_critical = bool(critical_hits)
@@ -734,7 +916,7 @@ def should_skip_by_rules(score_info):
 
 def fetch_feed(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/6.0"
+        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/7.0"
     }
 
     try:
@@ -820,7 +1002,6 @@ def normalize_ai_judgement(data, score_info):
 
     score = score_info["score"]
 
-    # 安全阀：真正高分严重事件不能被 AI 误杀
     if score >= 92 and score_info["has_critical"]:
         should_push = True
         risk = "高"
@@ -872,24 +1053,25 @@ def ai_judge_news(title, summary, source, link, score_info):
 2. 当前是中高质量模式：70 分以上有资格推送，但普通低价值内容不要推。
 3. 如果原文没有“大规模 / 多人 / 官方确认”，禁止判断为大规模事件。
 4. 单个帖子、单个用户、疑似传言，scope 必须是“单点反馈”或“未确认”。
-5. 涉及账号、封号、接码、OAuth、token、401、Plus、Pro、Codex，只能做风险判断，不能提供绕风控、薅号、盗号、规避检测方法。
-6. 普通产品发布、融资、观点、采访、论文、泛 AI 新闻，除非与 Codex / Claude Code / Copilot / Plus / 风控 / 401 / OAuth 强相关，否则 should_push=false。
+5. 涉及账号、封号、接码、OAuth、token、401、Plus、Pro、Codex、PP、无卡，只能做风险判断，不能提供绕风控、薅号、盗号、规避检测方法。
+6. 普通产品发布、融资、观点、采访、论文、泛 AI 新闻，除非与 Codex / Claude Code / Copilot / Plus / PP / 接码 / 二验 / 风控 / 401 / OAuth 强相关，否则 should_push=false。
 7. 不确定就降低 confidence。
 8. 不要标题党。
 9. Reddit 搜索结果如果只是普通聊天、提示词、娱乐、观点，不要推送。
 10. 如果 score >= 88 且确实与核心主题相关，可以更积极推送。
+11. 用户特别偏好这类情报：pp又复活、pp渠道疑似拉闸、注册成功瞬间变回free、gpt登录二次验证、手机号随机、手搓接码、巴西/智利/hero sms/WhatsApp 接码反馈。命中这些时更积极推送，但仍然要写成风险观察，不要写教程。
 
 必须输出合法 JSON，格式示例：
 {
   "should_push": true,
-  "category": "Codex",
+  "category": "账号风控",
   "scope": "单点反馈",
   "risk": "中",
   "confidence": "中",
   "action": "暂时观察",
-  "reason": "涉及 Codex 登录异常，但来源仍是单点反馈",
-  "no_hype_title": "Codex 登录异常反馈待观察",
-  "hype_warning": "不能写成大规模异常"
+  "reason": "涉及 PP/接码/二次验证相关风险反馈，但来源仍是社区单点或少量反馈",
+  "no_hype_title": "PP/接码/二次验证风险反馈待观察",
+  "hype_warning": "不能写成官方确认或大规模事件"
 }
 """
 
@@ -911,10 +1093,12 @@ def ai_judge_news(title, summary, source, link, score_info):
 中高质量推送标准：
 - 70 分以上才有资格推送。
 - 普通低价值内容不要推。
-- 单点反馈可以推，但必须是账号 / Codex / OAuth / 401 / Plus / Claude Code / Copilot / 额度 / 风控相关。
+- 单点反馈可以推，但必须是账号 / Codex / OAuth / 401 / Plus / PP / 无卡 / 接码 / 二次验证 / 手机号验证 / Claude Code / Copilot / 额度 / 风控相关。
 - 没有核心主题、没有严重事件、没有官方确认的普通 AI 新闻不要推。
-- 只要对 Codex / Claude Code / Copilot / Plus / OAuth / 401 / 账号风控 / 额度 / 订阅 / API 可用性有实际影响，可以推。
+- 只要对 Codex / Claude Code / Copilot / Plus / PP渠道 / 无卡PayPal / 接码 / 二次验证 / OAuth / 401 / 账号风控 / 额度 / 订阅 / API 可用性有实际影响，可以推。
 - Reddit 普通帖子、提示词讨论、数学/科研泛新闻、家庭使用 ChatGPT 这类内容不要推。
+- 用户喜欢的格式是：标题、兴趣等级、变化、成本/渠道/注意、关键信息、风险判断、评论补充、来源、发布时间、链接。
+- 只做风险观察，不输出购买接码、绕过验证、规避风控的操作教程。
 
 原始信息：
 标题：{short_text(title, 240)}
@@ -959,7 +1143,7 @@ def ai_judge_news(title, summary, source, link, score_info):
         return default_ai_judgement(score_info), "exception"
 
 
-def fallback_message(title, summary, source, link, score_info, ai_judgement):
+def fallback_message(title, summary, source, link, score_info, ai_judgement, published_time="未知"):
     level = score_info["level"]
     score = score_info["score"]
     rating = score_info["rating"]
@@ -975,15 +1159,15 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement):
     title_text = ai_judgement.get("no_hype_title") or short_text(title, 90)
 
     if level == "爆炸":
-        prefix = "🚨【爆炸新闻】"
+        prefix = "🚨"
     elif level == "高":
-        prefix = "🔴【高关注】"
+        prefix = "📌"
     else:
-        prefix = "🟡【观察】"
+        prefix = "🟡"
 
     reason_text = "、".join(reasons[:5]) if reasons else "公开来源自动抓取"
 
-    return f"""{prefix}{short_text(title_text, 80)}
+    return f"""{prefix} {short_text(title_text, 80)}
 
 {level_icon(level)} 兴趣等级：{level}
 🔥 评分：{score}/100
@@ -1006,10 +1190,11 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement):
 理由：来自公开来源，需结合更多反馈继续观察。
 
 来源：{source}
+发布时间：{published_time}
 链接：{link}"""
 
 
-def deepseek_summarize(title, summary, source, link, score_info, ai_judgement):
+def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, published_time="未知"):
     level = score_info["level"]
     score = score_info["score"]
     rating = score_info["rating"]
@@ -1024,12 +1209,13 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement):
 
     if not DEEPSEEK_API_KEY:
         print("DEEPSEEK_API_KEY not set, use fallback message.")
-        return fallback_message(title, summary, source, link, score_info, ai_judgement)
+        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time)
 
     raw_content = short_text(
         f"""
 标题：{title}
 来源：{source}
+发布时间：{published_time}
 摘要：{summary}
 链接：{link}
 
@@ -1059,13 +1245,15 @@ AI 预判：
 2. 必须遵守 AI 预判里的 category / scope / risk / confidence / action。
 3. 如果 AI 预判 scope 是“单点反馈”或“未确认”，禁止写“大规模、批量、全线、已确认、普遍”。
 4. 如果原文没有官方确认，不要写“官方确认”。
-5. 涉及封号、接码、账号、风控、额度、OAuth、access token、refresh token、401、共享号、Plus/Pro，只做风险分析，不提供薅号、绕风控、盗号、规避检测教程。
+5. 涉及封号、接码、账号、风控、额度、OAuth、access token、refresh token、401、共享号、Plus/Pro、PP、无卡，只做风险分析，不提供薅号、绕风控、盗号、规避检测教程。
 6. 不要输出 Markdown 表格。
 7. 不要输出代码块。
 8. 不要写“根据原文”“根据你提供的信息”这种废话。
 9. 标题要短、准，不标题党。
 10. 输出适合飞书手机端阅读，不要太长。
 11. 宁可保守，不要夸大。
+12. 用户喜欢“图文情报卡”的风格：📌标题、兴趣等级、变化、成本/渠道/注意、关键信息、风险判断、评论补充、来源、发布时间、链接。
+13. 如果原文里没有成本/渠道/评论补充，就不要编造；可以省略对应小节。
 """
 
     user_prompt = f"""请生成飞书情报卡片。
@@ -1082,37 +1270,44 @@ AI 预判：
 - 不夸大标题参考：{no_hype_title}
 - 判断理由：{judge_reason}
 
-标题规则：
-- 爆炸等级：标题前加 🚨【爆炸新闻】
-- 高等级：标题前加 🔴【高关注】
-- 观察等级：标题前加 🟡【观察】
-- 标题尽量 30 字以内
-- 不要夸大，不要编造
+输出风格参考：
+📌 标题
 
-必须输出：
-
-{level_icon(level)} 兴趣等级：{level}
-🔥 评分：{score}/100
-🏷 评级：{rating}
-📌 建议：{action}
+🔴/🟡 兴趣等级：高/中
 
 📝 变化：
-- 用 1-3 条写清楚发生了什么
+- 写清楚发生了什么
+
+💰 成本/渠道：
+- 只有原文出现价格、渠道、国家、hero sms、WhatsApp、巴西/智利等信息才写
+
+⚠️ 注意：
+- 写不确定性、并非所有人都有、单点反馈等限制
 
 🔎 关键信息：
-- 类型：{category}
-- 范围：{scope}
-- 影响：一句话说明影响
+- 类型：
+- 范围：
+- 影响：
 
-⚠️ 风险判断：{risk}
-- 用 1-3 条说明为什么
-- 如果是单点反馈，不要直接判断为大规模事件
+🧯 风险判断：
+- 保守判断，不夸大
 
-可信度：{confidence}
+💬 评论补充：
+- 只有原文有评论/社区补充才写
+
+可信度：高/中/低
 理由：一句话
 
 来源：{source}
+发布时间：{published_time}
 链接：{link}
+
+要求：
+- 标题尽量 30 字以内
+- 不要输出教程
+- 不要教人怎么买接码、怎么绕验证、怎么保号
+- 不要把单点反馈写成全网事件
+- 如果是 PP / 接码 / 二验 / free / 邮箱注册收紧相关内容，要优先整理成风险观察卡片
 
 原始内容：
 {raw_content}
@@ -1132,7 +1327,7 @@ AI 预判：
                     {"role": "user", "content": user_prompt},
                 ],
                 "temperature": 0.05,
-                "max_tokens": 850,
+                "max_tokens": 950,
                 "stream": False,
             },
             timeout=60,
@@ -1140,10 +1335,16 @@ AI 预判：
 
         if response.status_code != 200:
             print("DeepSeek summary failed:", response.status_code, response.text[:500])
-            return fallback_message(title, summary, source, link, score_info, ai_judgement)
+            return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time)
 
         data = response.json()
         content = data["choices"][0]["message"]["content"].strip()
+
+        if "发布时间：" not in content:
+            content = content.rstrip() + f"\n\n发布时间：{published_time}"
+
+        if "链接：" not in content:
+            content = content.rstrip() + f"\n链接：{link}"
 
         if f"评分：{score}/100" not in content:
             content = f"{level_icon(level)} 兴趣等级：{level}\n🔥 评分：{score}/100\n🏷 评级：{rating}\n📌 建议：{action}\n\n{content}"
@@ -1152,7 +1353,7 @@ AI 预判：
 
     except Exception as e:
         print("DeepSeek summary exception:", e)
-        return fallback_message(title, summary, source, link, score_info, ai_judgement)
+        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time)
 
 
 def send_feishu(message):
@@ -1266,6 +1467,8 @@ def main():
             title = clean_html(entry.get("title", ""))
             link = entry.get("link", "")
             summary = clean_html(entry.get("summary", "") or entry.get("description", ""))
+            published_dt = parse_entry_datetime(entry)
+            published_time = format_datetime_for_feishu(published_dt)
 
             if not title or not link:
                 feed_skipped += 1
@@ -1310,6 +1513,7 @@ def main():
                 "summary": summary,
                 "source": source,
                 "link": link,
+                "published_time": published_time,
                 "score_info": score_info,
             })
 
@@ -1381,6 +1585,7 @@ def main():
             item["link"],
             item["score_info"],
             ai_judgement,
+            item.get("published_time", "未知"),
         )
 
         success = send_feishu(message)
