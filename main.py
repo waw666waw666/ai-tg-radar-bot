@@ -19,70 +19,67 @@ SEEN_FILE = Path("seen.json")
 
 
 # =========================
+# 运行说明
+# =========================
+# main.py 不负责控制运行频率。
+# 运行频率由 cron-job.org 控制。
+#
+# 你当前推荐 cron-job.org 表达式：
+# 0 0,2,4-23 * * *
+#
+# 含义：
+# 00:00、02:00、04:00 执行
+# 05:00～23:00 每小时执行
+#
+# cron-job.org 时区必须是：
+# Asia/Shanghai
+
+
+# =========================
 # 推送策略：过去 1 小时热点 + 中高质量 + 不刷屏
 # =========================
 HIGH_QUALITY_ONLY = True
 
-# 重点抓取过去 1 小时热点
 HOT_WINDOW_HOURS = 1
+OLD_ITEM_GRACE_HOURS = 2
 
-# 超过 1 小时但不超过 3 小时：只有强偏好 / 官方事故 / 高分才继续
-OLD_ITEM_GRACE_HOURS = 3
-
-# 规则评分低于这个值：直接跳过，不进入 AI 判断
-MIN_RULE_SCORE = 58
-
-# 最终推送最低分
+MIN_RULE_SCORE = 56
 MIN_PUSH_SCORE = 70
-
-# 单点反馈最低推送分：账号 / Codex / 接码 / 验证类 70 分也允许进入 AI 判推
 MIN_SINGLE_REPORT_SCORE = 70
-
-# 普通泛 AI 新闻最低推送分：继续更严格，避免 Reddit / HN 垃圾刷屏
 MIN_GENERAL_AI_SCORE = 78
-
-# 强偏好内容进入 AI 判断的例外线：PP / 接码 / 二验 / 401 / free / Codex text message 等
 PREFERRED_ALLOW_JUDGE_SCORE = 65
 
-# 软推送限制：普通情况下推到 3 条就够
 SOFT_SEND_LIMIT = 3
-
-# 高分突破线：达到这个分数，即使超过 3 条也继续推
 HIGH_SCORE_SEND_BYPASS = 88
-
-# 硬上限：防止极端情况下刷屏
 HARD_SEND_LIMIT = 8
 
-# 每次最多让 AI 判断几条，避免浪费 token
-MAX_JUDGE_COUNT = 24
+MAX_JUDGE_COUNT = 28
 
-# 每个 RSS 最多读取几条
-MAX_ENTRIES_PER_FEED = 15
+# 重要：不要只抓 10 / 15 条，否则你看到的永远都是几分钟前。
+# RSS 本身不是全站数据库，但这里会尽量读取 RSS 当前返回的更多条目。
+MAX_ENTRIES_PER_FEED = 80
 
-# 没有高质量内容时不发任何消息
 SEND_EMPTY_HEARTBEAT = False
 
-# 同类事件合并，避免同一类二验/接码/PP 风控消息连续推多条
 MERGE_SIMILAR_EVENTS = True
-MERGE_SIMILARITY_THRESHOLD = 0.78
-MAX_RELATED_UPDATES_IN_CARD = 4
+MERGE_SIMILARITY_THRESHOLD = 0.76
+MAX_RELATED_UPDATES_IN_CARD = 5
 
 
 # =========================
-# 分数上限：解决“单点反馈全是 100 分”的问题
+# 分数上限：避免单点反馈全是 100
 # =========================
-CAP_SINGLE_REPORT = 88
-CAP_WEAK_SINGLE_REPORT = 82
-CAP_DELETED_OR_INCOMPLETE = 82
-CAP_UNCONFIRMED_NO_MULTI = 90
-CAP_GENERAL_AI = 78
-CAP_REDDIT_SINGLE = 84
-
-# 只有这些情况可以突破 92：
-# 1. 官方状态 / 官方仓库明确事故
-# 2. 多人反馈 / 批量反馈
-# 3. 严重关键词 + 强证据
-HIGH_CONFIDENCE_BREAKTHROUGH_SCORE = 92
+CAP_OFFICIAL_INCIDENT = 100
+CAP_MULTI_CRITICAL = 94
+CAP_LINUX_MULTI_PREFERRED = 92
+CAP_LINUX_SINGLE_PREFERRED = 86
+CAP_SINGLE_REPORT = 84
+CAP_WEAK_SINGLE_REPORT = 78
+CAP_DELETED_OR_INCOMPLETE = 76
+CAP_QUESTION_ONLY = 72
+CAP_UNCONFIRMED_NO_MULTI = 88
+CAP_GENERAL_AI = 70
+CAP_REDDIT_SINGLE = 82
 
 
 # =========================
@@ -156,6 +153,9 @@ PREFERRED_RISK_KEYWORDS = [
     "RT",
     "session",
     "auth.json",
+    "OAuth",
+    "access token",
+    "refresh token",
 ]
 
 PREFERRED_RISK_COMBO_HINTS = [
@@ -189,22 +189,22 @@ PREFERRED_RISK_COMBO_HINTS = [
     ["401", "team"],
     ["401", "ak"],
     ["401", "cpa"],
+    ["oauth", "失效"],
+    ["access token", "失效"],
+    ["refresh token", "失效"],
 ]
 
 
 RSS_SOURCES = [
-    # A类：权威源 / 官方状态 / 官方仓库 / 工具发布
     "https://status.openai.com/history.rss",
     "https://github.com/openai/codex/issues.atom",
     "https://github.com/openai/codex/releases.atom",
     "https://github.com/anthropics/claude-code/releases.atom",
     "https://github.com/google-gemini/gemini-cli/releases.atom",
 
-    # A类补充：官方公告 / GitHub Copilot 更新
     "https://github.blog/changelog/label/copilot/feed/",
     "https://openai.com/news/rss.xml",
 
-    # B类：社区源 / 一线反馈 / 中文高价值情报
     "https://linux.do/latest.rss",
     "https://linux.do/top.rss",
     "https://linux.do/posts.rss",
@@ -221,11 +221,9 @@ RSS_SOURCES = [
     "https://hnrss.org/newest?q=Claude%20Code",
     "https://hnrss.org/newest?q=Gemini%20CLI",
 
-    # C类：精选聚合源，只加精选和日报，不加全部动态，避免刷屏
     "https://aihot.virxact.com/feed.xml",
     "https://aihot.virxact.com/feed/daily.xml",
 
-    # D类：泛 AI 技术源，低权重补充
     "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
     "https://huggingface.co/blog/feed.xml",
 ]
@@ -566,6 +564,19 @@ WEAK_SIGNAL_KEYWORDS = [
 ]
 
 
+QUESTION_ONLY_KEYWORDS = [
+    "求助",
+    "请教",
+    "询问",
+    "问一下",
+    "想问",
+    "有没有",
+    "吗",
+    "？",
+    "?",
+]
+
+
 def load_seen():
     if not SEEN_FILE.exists():
         return set()
@@ -586,7 +597,7 @@ def load_seen():
 
 def save_seen(seen):
     SEEN_FILE.write_text(
-        json.dumps(list(seen)[-3200:], ensure_ascii=False, indent=2),
+        json.dumps(list(seen)[-4000:], ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
 
@@ -735,28 +746,37 @@ def get_source_profile(source, rss_url):
         return {"name": "GitHub Copilot Changelog", "authority": 21, "type": "A类 / GitHub Copilot 官方变更"}
 
     if "openai.com/news/rss.xml" in text:
-        return {"name": "OpenAI News", "authority": 20, "type": "A类 / OpenAI 官方新闻"}
+        return {"name": "OpenAI News", "authority": 18, "type": "A类 / OpenAI 官方新闻"}
+
+    if "linux.do/latest" in text:
+        return {"name": "LINUX DO - 最新话题", "authority": 24, "type": "B类 / 中文社区一线反馈"}
+
+    if "linux.do/top" in text:
+        return {"name": "LINUX DO - 热门话题", "authority": 23, "type": "B类 / 中文社区热门反馈"}
+
+    if "linux.do/posts" in text:
+        return {"name": "LINUX DO - 最新帖子", "authority": 22, "type": "B类 / 中文社区帖子反馈"}
 
     if "linux.do" in text:
-        return {"name": "Linux.do", "authority": 22, "type": "B类 / 中文社区一线反馈"}
+        return {"name": "Linux.do", "authority": 23, "type": "B类 / 中文社区一线反馈"}
 
     if "reddit.com" in text:
-        return {"name": "Reddit", "authority": 14, "type": "B类 / 海外社区反馈"}
+        return {"name": "Reddit", "authority": 12, "type": "B类 / 海外社区反馈"}
 
     if "hnrss.org" in text:
-        return {"name": "Hacker News", "authority": 13, "type": "B类 / 技术社区讨论"}
+        return {"name": "Hacker News", "authority": 10, "type": "B类 / 技术社区讨论"}
 
     if "aihot.virxact.com/feed.xml" in text:
-        return {"name": "AIHOT 精选", "authority": 18, "type": "C类 / 中文精选聚合"}
+        return {"name": "AIHOT 精选", "authority": 16, "type": "C类 / 中文精选聚合"}
 
     if "aihot.virxact.com/feed/daily.xml" in text:
-        return {"name": "AIHOT 日报", "authority": 16, "type": "C类 / 中文日报聚合"}
+        return {"name": "AIHOT 日报", "authority": 14, "type": "C类 / 中文日报聚合"}
 
     if "huggingface.co" in text:
-        return {"name": "HuggingFace Blog", "authority": 10, "type": "D类 / 技术博客"}
+        return {"name": "HuggingFace Blog", "authority": 8, "type": "D类 / 技术博客"}
 
     if "theverge.com" in text:
-        return {"name": "The Verge AI", "authority": 7, "type": "D类 / 泛 AI 媒体"}
+        return {"name": "The Verge AI", "authority": 6, "type": "D类 / 泛 AI 媒体"}
 
     return {"name": source or rss_url, "authority": 8, "type": "未知公开 RSS"}
 
@@ -861,22 +881,24 @@ def has_preferred_signal(title, summary):
 
 
 def time_score_from_age(age_minutes):
+    # 不是“越新越好”。
+    # 你要的是过去 1 小时热点，所以 30～60 分钟反而更适合判断，评论和反馈更成熟。
     if age_minutes is None:
         return 2, "发布时间未知 +2"
 
-    if age_minutes <= 15:
-        return 8, "0-15分钟热点 +8"
+    if age_minutes <= 10:
+        return 4, "0-10分钟新帖 +4"
 
     if age_minutes <= 30:
-        return 6, "15-30分钟热点 +6"
+        return 6, "10-30分钟热点 +6"
 
     if age_minutes <= 60:
-        return 4, "30-60分钟热点 +4"
+        return 8, "30-60分钟成熟热点 +8"
 
     if age_minutes <= OLD_ITEM_GRACE_HOURS * 60:
-        return 1, "1-3小时旧热点 +1"
+        return 2, "1-2小时旧热点 +2"
 
-    return 0, "超过3小时 +0"
+    return 0, "超过2小时 +0"
 
 
 def should_ignore_by_time(published_dt, score_info, title, summary):
@@ -916,65 +938,82 @@ def is_deleted_or_incomplete(title, summary):
     return False, []
 
 
-def apply_score_caps(score, score_info, title, summary):
+def is_question_only(title, summary):
     text = f"{title} {summary}"
+    hits = matched_keywords(text, QUESTION_ONLY_KEYWORDS)
+
+    if not hits:
+        return False, []
+
+    has_real_signal = matched_keywords(text, CRITICAL_EVENT_KEYWORDS) or matched_keywords(text, PREFERRED_RISK_KEYWORDS)
+    if has_real_signal:
+        return False, []
+
+    return True, hits
+
+
+def apply_score_caps(score, score_info, title, summary):
     source_profile = score_info["source_profile"]
 
     single_hits = score_info["single_hits"]
     multi_hits = score_info["multi_hits"]
-    preferred_hits = score_info.get("preferred_hits", [])
     has_preferred = score_info.get("has_preferred_signal", False)
     has_critical = score_info.get("has_critical", False)
     has_strong_evidence = score_info.get("has_strong_evidence", False)
     core_hits = score_info.get("core_hits", [])
     medium_hits = score_info.get("medium_hits", [])
+    preferred_hits = score_info.get("preferred_hits", [])
 
     deleted_or_incomplete, weak_hits = is_deleted_or_incomplete(title, summary)
+    question_only, question_hits = is_question_only(title, summary)
 
     cap_reasons = []
 
-    is_officialish = source_profile["authority"] >= 21
+    is_officialish = source_profile["authority"] >= 21 and source_profile["name"] not in [
+        "LINUX DO - 最新话题",
+        "LINUX DO - 热门话题",
+        "LINUX DO - 最新帖子",
+        "Linux.do",
+    ]
+
+    is_linux = source_profile["name"].lower().startswith("linux") or source_profile["name"].startswith("LINUX")
     is_multi_confirmed = bool(multi_hits)
-    can_break_92 = bool(
-        (is_officialish and has_critical)
-        or (is_multi_confirmed and has_critical)
-        or (has_strong_evidence and has_critical)
-    )
 
-    if not can_break_92:
-        if score > CAP_UNCONFIRMED_NO_MULTI:
-            score = CAP_UNCONFIRMED_NO_MULTI
-            cap_reasons.append(f"未确认/非官方强证据上限 {CAP_UNCONFIRMED_NO_MULTI}")
-
-    if single_hits and not multi_hits:
-        if has_preferred:
-            if score > CAP_SINGLE_REPORT:
-                score = CAP_SINGLE_REPORT
-                cap_reasons.append(f"单点偏好反馈上限 {CAP_SINGLE_REPORT}")
-        else:
-            if score > CAP_WEAK_SINGLE_REPORT:
-                score = CAP_WEAK_SINGLE_REPORT
-                cap_reasons.append(f"普通单点反馈上限 {CAP_WEAK_SINGLE_REPORT}")
+    if is_officialish and has_critical:
+        final_cap = CAP_OFFICIAL_INCIDENT
+    elif is_multi_confirmed and has_critical:
+        final_cap = CAP_MULTI_CRITICAL
+    elif is_linux and is_multi_confirmed and has_preferred:
+        final_cap = CAP_LINUX_MULTI_PREFERRED
+    elif is_linux and single_hits and has_preferred:
+        final_cap = CAP_LINUX_SINGLE_PREFERRED
+    elif single_hits and has_preferred:
+        final_cap = CAP_SINGLE_REPORT
+    elif single_hits:
+        final_cap = CAP_WEAK_SINGLE_REPORT
+    elif medium_hits and not core_hits and not preferred_hits and not has_critical:
+        final_cap = CAP_GENERAL_AI
+    else:
+        final_cap = CAP_UNCONFIRMED_NO_MULTI
 
     if deleted_or_incomplete:
-        if score > CAP_DELETED_OR_INCOMPLETE:
-            score = CAP_DELETED_OR_INCOMPLETE
-            cap_reasons.append(f"已删/信息不完整上限 {CAP_DELETED_OR_INCOMPLETE}：{', '.join(weak_hits[:3])}")
+        final_cap = min(final_cap, CAP_DELETED_OR_INCOMPLETE)
+        cap_reasons.append(f"已删/信息不完整上限 {CAP_DELETED_OR_INCOMPLETE}：{', '.join(weak_hits[:3])}")
+
+    if question_only:
+        final_cap = min(final_cap, CAP_QUESTION_ONLY)
+        cap_reasons.append(f"普通询问帖上限 {CAP_QUESTION_ONLY}：{', '.join(question_hits[:3])}")
 
     if source_profile["name"] == "Reddit" and not multi_hits:
-        if score > CAP_REDDIT_SINGLE:
-            score = CAP_REDDIT_SINGLE
-            cap_reasons.append(f"Reddit 单点上限 {CAP_REDDIT_SINGLE}")
+        final_cap = min(final_cap, CAP_REDDIT_SINGLE)
+        cap_reasons.append(f"Reddit 单点上限 {CAP_REDDIT_SINGLE}")
 
-    if medium_hits and not core_hits and not preferred_hits and not has_critical:
-        if score > CAP_GENERAL_AI:
-            score = CAP_GENERAL_AI
-            cap_reasons.append(f"普通泛 AI 内容上限 {CAP_GENERAL_AI}")
+    if not (has_strong_evidence and has_critical) and not multi_hits:
+        final_cap = min(final_cap, CAP_UNCONFIRMED_NO_MULTI)
 
-    # 只有真正强证据才允许满分附近
-    if score >= 96 and not can_break_92:
-        score = 92
-        cap_reasons.append("非官方/非多人确认，不允许接近满分")
+    if score > final_cap:
+        score = final_cap
+        cap_reasons.append(f"应用最终评分上限 {final_cap}")
 
     score = clamp_score(score)
 
@@ -983,7 +1022,6 @@ def apply_score_caps(score, score_info, title, summary):
 
 def score_news(title, summary, source, rss_url, published_dt=None):
     # 重要：这里只能用标题和摘要评分，不能把 RSS 源标题 / 查询词算进去。
-    # 否则 Reddit search 源里的 “banned OR verification” 会导致无关帖子误判。
     text = f"{title} {summary}"
 
     source_profile = get_source_profile(source, rss_url)
@@ -1007,18 +1045,18 @@ def score_news(title, summary, source, rss_url, published_dt=None):
     topic_score = 0
 
     if core_hits:
-        topic_score += 20
-        reasons.append(f"核心主题 +20：{', '.join(core_hits[:5])}")
+        topic_score += 18
+        reasons.append(f"核心主题 +18：{', '.join(core_hits[:5])}")
 
     if medium_hits:
-        topic_score += 6
-        reasons.append(f"普通 AI 主题 +6：{', '.join(medium_hits[:4])}")
+        topic_score += 5
+        reasons.append(f"普通 AI 主题 +5：{', '.join(medium_hits[:4])}")
 
     if len(core_hits) >= 2:
         topic_score += 4
         reasons.append("多个核心主题 +4")
 
-    topic_score = min(topic_score, 26)
+    topic_score = min(topic_score, 24)
     score += topic_score
 
     special_combo_score = 0
@@ -1061,38 +1099,42 @@ def score_news(title, summary, source, rss_url, published_dt=None):
         special_combo_score += combo_score
         reasons.append(f"你关注的风险组合命中 +{combo_score}")
 
-    if source_profile["name"] == "Linux.do" and preferred_hits:
-        special_combo_score += 5
-        reasons.append("Linux.do + 你关注主题 +5")
+    if source_profile["name"].startswith("LINUX") or source_profile["name"] == "Linux.do":
+        if preferred_hits:
+            special_combo_score += 5
+            reasons.append("Linux.do + 你关注主题 +5")
 
     score += special_combo_score
 
     severity_score = 0
 
     if critical_hits:
-        severity_score += 18
-        reasons.append(f"严重事件 +18：{', '.join(critical_hits[:4])}")
+        severity_score += 16
+        reasons.append(f"严重事件 +16：{', '.join(critical_hits[:4])}")
     elif any(k.lower() in text.lower() for k in ["rate limit", "quota", "billing", "refund", "verification", "401", "403"]):
-        severity_score += 10
-        reasons.append("额度/计费/验证/错误码异常 +10")
+        severity_score += 9
+        reasons.append("额度/计费/验证/错误码异常 +9")
     elif core_hits:
-        severity_score += 6
-        reasons.append("核心主题一般事件 +6")
+        severity_score += 5
+        reasons.append("核心主题一般事件 +5")
 
-    severity_score = min(severity_score, 18)
+    severity_score = min(severity_score, 16)
     score += severity_score
 
     evidence_score = 0
     has_strong_evidence = False
 
-    if source_profile["authority"] >= 21:
+    officialish = source_profile["authority"] >= 21 and not source_profile["name"].startswith("LINUX") and source_profile["name"] != "Linux.do"
+
+    if officialish:
         evidence_score += 8
         has_strong_evidence = True
         reasons.append("官方/高权重来源 +8")
 
-    if source_profile["name"] == "Linux.do" and core_hits:
-        evidence_score += 4
-        reasons.append("Linux.do 核心主题 +4")
+    if source_profile["name"].startswith("LINUX") or source_profile["name"] == "Linux.do":
+        if core_hits:
+            evidence_score += 4
+            reasons.append("Linux.do 核心主题 +4")
 
     if multi_hits:
         evidence_score += 14
@@ -1114,28 +1156,28 @@ def score_news(title, summary, source, rss_url, published_dt=None):
     source_freshness_score = 0
 
     if "aihot.virxact.com/feed.xml" in rss_url:
-        source_freshness_score += 3
-        reasons.append("AIHOT 精选 +3")
+        source_freshness_score += 2
+        reasons.append("AIHOT 精选 +2")
     elif "aihot.virxact.com/feed/daily.xml" in rss_url:
         source_freshness_score += 1
         reasons.append("AIHOT 日报 +1")
     elif "github.blog/changelog/label/copilot/feed" in rss_url:
-        source_freshness_score += 4
-        reasons.append("Copilot 官方变更流 +4")
+        source_freshness_score += 3
+        reasons.append("Copilot 官方变更流 +3")
     elif "openai.com/news/rss.xml" in rss_url:
-        source_freshness_score += 3
-        reasons.append("OpenAI 官方新闻流 +3")
+        source_freshness_score += 2
+        reasons.append("OpenAI 官方新闻流 +2")
     elif "releases.atom" in rss_url:
-        source_freshness_score += 4
-        reasons.append("官方发布流 +4")
-    elif "latest" in rss_url or "newest" in rss_url or "issues.atom" in rss_url:
         source_freshness_score += 3
-        reasons.append("最新流 +3")
+        reasons.append("官方发布流 +3")
+    elif "latest" in rss_url or "newest" in rss_url or "issues.atom" in rss_url:
+        source_freshness_score += 2
+        reasons.append("最新流 +2")
     elif "top" in rss_url:
         source_freshness_score += 2
         reasons.append("热门流 +2")
 
-    source_freshness_score = min(source_freshness_score, 4)
+    source_freshness_score = min(source_freshness_score, 3)
     score += source_freshness_score
 
     penalty = 0
@@ -1168,7 +1210,7 @@ def score_news(title, summary, source, rss_url, published_dt=None):
 
     has_critical = bool(critical_hits)
 
-    if source_profile["authority"] >= 21:
+    if officialish:
         has_strong_evidence = True
 
     if multi_hits:
@@ -1260,7 +1302,8 @@ def should_skip_by_rules(score_info):
 
 def fetch_feed(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/9.0"
+        "User-Agent": "Mozilla/5.0 AI-Radar-Bot/10.0",
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
     }
 
     try:
@@ -1461,7 +1504,7 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
 摘要：{short_text(summary, 1800)}
 
 同类合并反馈：
-{json.dumps(related_updates, ensure_ascii=False)[:1600]}
+{json.dumps(related_updates, ensure_ascii=False)[:1800]}
 """
 
     try:
@@ -1603,7 +1646,6 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
     scope = ai_judgement.get("scope", "未确认")
     category = ai_judgement.get("category", "其他")
     no_hype_title = ai_judgement.get("no_hype_title", "")
-    judge_reason = ai_judgement.get("reason", "")
 
     display_title = no_hype_title or title
 
@@ -1640,7 +1682,7 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
 AI 预判：
 {json.dumps(ai_judgement, ensure_ascii=False)}
 """,
-        5200
+        5600
     )
 
     system_prompt = """你是一个飞书 AI 情报频道的中文编辑。
@@ -1818,7 +1860,7 @@ def should_merge_candidates(a, b):
         return False
 
     if a.get("theme") != "general" and a.get("theme") == b.get("theme"):
-        if similarity(a.get("title", ""), b.get("title", "")) >= 0.35:
+        if similarity(a.get("title", ""), b.get("title", "")) >= 0.32:
             return True
 
         a_text = f"{a.get('title', '')} {a.get('summary', '')}"
@@ -1892,12 +1934,34 @@ def merge_related_candidates(candidates):
     return merged
 
 
+def should_mark_seen_when_skipped(score_info, published_dt, title, summary):
+    age_minutes = get_age_minutes(published_dt)
+
+    # 黑名单 / 明显低分垃圾，直接 seen。
+    if score_info.get("block_hits"):
+        return True
+
+    if score_info["score"] < 45:
+        return True
+
+    # 超过 2 小时旧内容，直接 seen。
+    if age_minutes is not None and age_minutes > OLD_ITEM_GRACE_HOURS * 60:
+        return True
+
+    # 强偏好但刚发不久，先不要 seen，允许后面 30～60 分钟评论发酵后复扫。
+    if has_preferred_signal(title, summary) and age_minutes is not None and age_minutes <= 30:
+        return False
+
+    return True
+
+
 def main():
     print("DEEPSEEK_API_KEY set:", bool(DEEPSEEK_API_KEY))
     print("FEISHU_WEBHOOK set:", bool(FEISHU_WEBHOOK))
     print("FEISHU_WEBHOOK length:", len(FEISHU_WEBHOOK))
     print("HIGH_QUALITY_ONLY:", HIGH_QUALITY_ONLY)
     print("HOT_WINDOW_HOURS:", HOT_WINDOW_HOURS)
+    print("OLD_ITEM_GRACE_HOURS:", OLD_ITEM_GRACE_HOURS)
     print("MIN_RULE_SCORE:", MIN_RULE_SCORE)
     print("MIN_PUSH_SCORE:", MIN_PUSH_SCORE)
     print("MIN_SINGLE_REPORT_SCORE:", MIN_SINGLE_REPORT_SCORE)
@@ -1907,11 +1971,12 @@ def main():
     print("HIGH_SCORE_SEND_BYPASS:", HIGH_SCORE_SEND_BYPASS)
     print("HARD_SEND_LIMIT:", HARD_SEND_LIMIT)
     print("MAX_JUDGE_COUNT:", MAX_JUDGE_COUNT)
+    print("MAX_ENTRIES_PER_FEED:", MAX_ENTRIES_PER_FEED)
     print("SEND_EMPTY_HEARTBEAT:", SEND_EMPTY_HEARTBEAT)
     print("MERGE_SIMILAR_EVENTS:", MERGE_SIMILAR_EVENTS)
-    print("CAP_SINGLE_REPORT:", CAP_SINGLE_REPORT)
-    print("CAP_WEAK_SINGLE_REPORT:", CAP_WEAK_SINGLE_REPORT)
+    print("CAP_LINUX_SINGLE_PREFERRED:", CAP_LINUX_SINGLE_PREFERRED)
     print("CAP_DELETED_OR_INCOMPLETE:", CAP_DELETED_OR_INCOMPLETE)
+    print("Cron recommended: 0 0,2,4-23 * * *")
 
     seen = load_seen()
     new_seen = set(seen)
@@ -1944,12 +2009,13 @@ def main():
             continue
 
         source = feed.feed.get("title", rss_url)
+        all_entries_count = len(feed.entries)
         entries = feed.entries[:MAX_ENTRIES_PER_FEED]
 
         feed_accepted = 0
         feed_skipped = 0
 
-        print(f"Feed OK: {source} | {rss_url} | entries={len(feed.entries)}")
+        print(f"Feed OK: {source} | {rss_url} | entries_total={all_entries_count} | entries_read={len(entries)}")
 
         for entry in entries:
             title = clean_html(entry.get("title", ""))
@@ -1982,7 +2048,10 @@ def main():
                 skipped_time_count += 1
                 feed_skipped += 1
                 print(f"Skip by time: {short_text(title, 80)} | {time_reason}")
-                new_seen.add(uid)
+
+                if should_mark_seen_when_skipped(score_info, published_dt, title, summary):
+                    new_seen.add(uid)
+
                 continue
 
             skip, skip_reason = should_skip_by_rules(score_info)
@@ -1991,7 +2060,10 @@ def main():
                 skipped_rule_count += 1
                 feed_skipped += 1
                 print(f"Skip by rules: {short_text(title, 80)} | {skip_reason}")
-                new_seen.add(uid)
+
+                if should_mark_seen_when_skipped(score_info, published_dt, title, summary):
+                    new_seen.add(uid)
+
                 continue
 
             priority = {
@@ -2021,7 +2093,8 @@ def main():
         feed_stats.append({
             "url": rss_url,
             "ok": True,
-            "entries": len(feed.entries),
+            "entries": all_entries_count,
+            "read": len(entries),
             "accepted": feed_accepted,
             "skipped": feed_skipped,
             "error": "",
@@ -2126,7 +2199,7 @@ def main():
     for stat in feed_stats:
         status = "OK" if stat["ok"] else "FAILED"
         print(
-            f"{status} | entries={stat['entries']} | accepted={stat['accepted']} | skipped={stat['skipped']} | {stat['url']}"
+            f"{status} | entries={stat.get('entries', 0)} | read={stat.get('read', 0)} | accepted={stat['accepted']} | skipped={stat['skipped']} | {stat['url']}"
         )
 
     summary_text = f"""候选：{original_candidate_count}
