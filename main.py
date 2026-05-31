@@ -75,10 +75,11 @@ SEND_EMPTY_HEARTBEAT = False
 # =========================
 # 模型调用策略：只使用魔搭 ModelScope 上的 DeepSeek，不调用官网 DeepSeek
 # =========================
-MODEL_REQUEST_INTERVAL_SECONDS = 2
+# 魔搭 API 可能有分钟级限流；宁可慢一点，也不要一轮里连续 429 后乱推。
+MODEL_REQUEST_INTERVAL_SECONDS = 8
 MODEL_MAX_RETRIES = 3
 MODEL_TIMEOUT_SECONDS = 120
-MODEL_BACKOFF_BASE_SECONDS = 4
+MODEL_BACKOFF_BASE_SECONDS = 12
 
 MERGE_SIMILAR_EVENTS = True
 MERGE_SIMILARITY_THRESHOLD = 0.76
@@ -1644,9 +1645,23 @@ def normalize_ai_judgement(data, score_info):
     }
 
 
+def failed_ai_judgement(reason="AI 判断失败，跳过推送"):
+    return {
+        "should_push": False,
+        "category": "AI判断失败",
+        "scope": "未判断",
+        "risk": "低",
+        "confidence": "低",
+        "action": "可忽略",
+        "reason": reason,
+        "no_hype_title": "",
+        "hype_warning": "",
+    }
+
+
 def ai_judge_news(title, summary, source, link, score_info, related_updates=None):
     if not MODELSCOPE_API_KEY:
-        return default_ai_judgement(score_info), "no_api_key"
+        return failed_ai_judgement("MODELSCOPE_API_KEY 未配置，跳过推送"), "no_api_key"
 
     source_profile = score_info["source_profile"]
     related_updates = related_updates or []
@@ -1731,7 +1746,7 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
 
     if not judgement:
         print("AI judge failed: all providers failed")
-        return default_ai_judgement(score_info), provider_status
+        return failed_ai_judgement("ModelScope 判断失败或限流，跳过推送，等待下一轮重试"), provider_status
 
     print(f"AI judge provider used: {provider_name}")
 
@@ -1957,7 +1972,7 @@ AI 预判：
 
     if not body:
         print("Summary failed: all providers failed")
-        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time, related_updates)
+        return ""
 
     body = remove_duplicate_interest_lines(body)
 
@@ -2361,6 +2376,15 @@ def main():
             short_text(item["title"], 80),
         )
 
+        if judge_status in ["429_rate_limited", "all_failed", "no_api_key"]:
+            skipped_ai_count += 1
+            print(f"Skip because AI judge failed: {short_text(item['title'], 80)} | status={judge_status} | reason={ai_judgement.get('reason')}")
+            # 限流时不要继续打魔搭，避免一轮里连续失败；也不要写入 seen，下一轮可重试。
+            if judge_status == "429_rate_limited":
+                print("Stop this run because ModelScope is rate limited. Will retry next cron run.")
+                break
+            continue
+
         if not ai_judgement.get("should_push", False):
             skipped_ai_count += 1
             new_seen.add(item["uid"])
@@ -2382,6 +2406,13 @@ def main():
             item.get("published_time", "未知"),
             related_updates,
         )
+
+        if not message:
+            skipped_ai_count += 1
+            print(f"Skip because summary failed: {short_text(item['title'], 80)}")
+            # 摘要失败通常也是限流/接口失败；不写 seen，下一轮重试。
+            print("Stop this run because ModelScope summary failed. Will retry next cron run.")
+            break
 
         success = send_feishu(message)
 
