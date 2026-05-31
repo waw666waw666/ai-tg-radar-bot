@@ -76,10 +76,16 @@ SEND_EMPTY_HEARTBEAT = False
 # 模型调用策略：只使用魔搭 ModelScope 上的 DeepSeek，不调用官网 DeepSeek
 # =========================
 # 魔搭 API 可能有分钟级限流；宁可慢一点，也不要一轮里连续 429 后乱推。
-MODEL_REQUEST_INTERVAL_SECONDS = 8
-MODEL_MAX_RETRIES = 3
+MODEL_REQUEST_INTERVAL_SECONDS = 15
+# 魔搭限流时不要一轮里反复硬撞；失败后用安全规则兜底，下一轮 cron 再重试。
+MODEL_MAX_RETRIES = 1
 MODEL_TIMEOUT_SECONDS = 120
-MODEL_BACKOFF_BASE_SECONDS = 12
+MODEL_BACKOFF_BASE_SECONDS = 30
+
+# 当 ModelScope 429 时，只允许“强相关/高分/多条同类”的规则兜底推送，避免完全静默，也避免垃圾乱推。
+RATE_LIMIT_LOCAL_FALLBACK_ENABLED = True
+RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE = 86
+RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND = 2
 
 MERGE_SIMILAR_EVENTS = True
 MERGE_SIMILARITY_THRESHOLD = 0.76
@@ -1476,6 +1482,8 @@ def call_llm_json(messages, max_tokens=1200):
         },
     ]
 
+    last_status = "all_failed"
+
     for provider in providers:
         content, status = call_openai_compatible_chat(
             provider_name=provider["name"],
@@ -1490,6 +1498,7 @@ def call_llm_json(messages, max_tokens=1200):
 
         if not content:
             print(f"LLM JSON provider failed: {provider['name']} | {status}")
+            last_status = status or "all_failed"
             continue
 
         try:
@@ -1498,11 +1507,10 @@ def call_llm_json(messages, max_tokens=1200):
             return data, provider["name"], "ok"
         except Exception as e:
             print(f"LLM JSON parse failed: {provider['name']} | {e} | content={content[:500]}")
+            last_status = "json_parse_failed"
             continue
 
-    return None, "none", "all_failed"
-
-
+    return None, "none", last_status or "all_failed"
 def call_llm_text(messages, max_tokens=1800):
     providers = [
         {
@@ -1512,6 +1520,8 @@ def call_llm_text(messages, max_tokens=1800):
             "model": MODELSCOPE_MODEL,
         },
     ]
+
+    last_status = "all_failed"
 
     for provider in providers:
         content, status = call_openai_compatible_chat(
@@ -1527,14 +1537,13 @@ def call_llm_text(messages, max_tokens=1800):
 
         if not content:
             print(f"LLM text provider failed: {provider['name']} | {status}")
+            last_status = status or "all_failed"
             continue
 
         print(f"LLM text provider used: {provider['name']}")
         return content, provider["name"], "ok"
 
-    return "", "none", "all_failed"
-
-
+    return "", "none", last_status or "all_failed"
 def default_ai_judgement(score_info):
     score = score_info["score"]
     level = score_info["level"]
@@ -1656,6 +1665,77 @@ def failed_ai_judgement(reason="AI 判断失败，跳过推送"):
         "reason": reason,
         "no_hype_title": "",
         "hype_warning": "",
+    }
+
+
+def should_rule_fallback_push(item, judge_status):
+    """ModelScope 限流时的安全兜底：只推强相关、高分、多证据或官方紧急内容。"""
+    if not RATE_LIMIT_LOCAL_FALLBACK_ENABLED:
+        return False
+
+    if judge_status not in ["429_rate_limited", "all_failed", "server_500", "server_502", "server_503", "server_504"]:
+        return False
+
+    score_info = item.get("score_info", {})
+    score = item.get("score", 0)
+    related_count = len(item.get("related_updates", []))
+    theme = item.get("theme", "general")
+    source_profile = score_info.get("source_profile", {})
+    source_name = source_profile.get("name", "")
+
+    if is_official_emergency(score_info):
+        return True
+
+    # 用户最关心：PP / 接码 / 二验 / 401 / OAuth / Codex / CPA / Sub2API / 额度。
+    if (
+        score >= RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE
+        and score_info.get("has_preferred_signal")
+        and theme != "general"
+        and related_count >= 1
+    ):
+        return True
+
+    # L站高质量问题反馈：分高 + 强偏好 + 非 general，可以用规则兜底。
+    if (
+        score >= 88
+        and (source_name.startswith("LINUX") or source_name == "Linux.do")
+        and score_info.get("has_preferred_signal")
+        and theme != "general"
+    ):
+        return True
+
+    return False
+
+
+def build_rate_limit_fallback_judgement(item, judge_status):
+    score_info = item.get("score_info", {})
+    related_count = len(item.get("related_updates", []))
+    scope = "社区多点反馈" if related_count else "单点反馈"
+
+    if is_official_emergency(score_info):
+        category = "官方服务异常"
+        scope = "官方确认"
+        risk = "高"
+        confidence = "高"
+        action = "需要立刻关注"
+        reason = "ModelScope 当前限流，已启用官方事故规则兜底；来源为官方状态/公告。"
+    else:
+        category = "账号风控 / 额度 / 接码 / 工具异常"
+        risk = "中"
+        confidence = "中"
+        action = "暂时观察"
+        reason = "ModelScope 当前限流，已启用高分强相关规则兜底；只做风险观察，下一轮会继续尝试 AI 总结。"
+
+    return {
+        "should_push": True,
+        "category": category,
+        "scope": scope,
+        "risk": risk,
+        "confidence": confidence,
+        "action": action,
+        "reason": reason,
+        "no_hype_title": item.get("title", ""),
+        "hype_warning": "这是限流兜底摘要，未经过完整 AI 深度总结。",
     }
 
 
@@ -2191,6 +2271,9 @@ def main():
     print("MAX_JUDGE_COUNT:", MAX_JUDGE_COUNT)
     print("MAX_ENTRIES_PER_FEED:", MAX_ENTRIES_PER_FEED)
     print("SEND_EMPTY_HEARTBEAT:", SEND_EMPTY_HEARTBEAT)
+    print("RATE_LIMIT_LOCAL_FALLBACK_ENABLED:", RATE_LIMIT_LOCAL_FALLBACK_ENABLED)
+    print("RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE:", RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE)
+    print("RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND:", RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND)
     print("MERGE_SIMILAR_EVENTS:", MERGE_SIMILAR_EVENTS)
     print("CAP_LINUX_SINGLE_PREFERRED:", CAP_LINUX_SINGLE_PREFERRED)
     print("CAP_DELETED_OR_INCOMPLETE:", CAP_DELETED_OR_INCOMPLETE)
@@ -2378,12 +2461,35 @@ def main():
 
         if judge_status in ["429_rate_limited", "all_failed", "no_api_key"]:
             skipped_ai_count += 1
-            print(f"Skip because AI judge failed: {short_text(item['title'], 80)} | status={judge_status} | reason={ai_judgement.get('reason')}")
-            # 限流时不要继续打魔搭，避免一轮里连续失败；也不要写入 seen，下一轮可重试。
-            if judge_status == "429_rate_limited":
-                print("Stop this run because ModelScope is rate limited. Will retry next cron run.")
-                break
-            continue
+            print(f"AI judge failed: {short_text(item['title'], 80)} | status={judge_status} | reason={ai_judgement.get('reason')}")
+
+            # 429 / all_failed 时不要继续硬撞魔搭。
+            # 但对官方紧急事故、L站高分强相关、多条同类反馈，允许规则兜底推一条，避免完全静默。
+            if should_rule_fallback_push(item, judge_status):
+                fallback_judgement = build_rate_limit_fallback_judgement(item, judge_status)
+                message = fallback_message(
+                    item["title"],
+                    item["summary"],
+                    item["source"],
+                    item["link"],
+                    item["score_info"],
+                    fallback_judgement,
+                    item.get("published_time", "未知"),
+                    related_updates,
+                )
+                success = send_feishu(message)
+
+                # 兜底推送成功才写 seen；失败则下一轮重试。
+                if success:
+                    new_seen.add(item["uid"])
+                    for related in related_updates:
+                        if related.get("link"):
+                            new_seen.add(item_id(related.get("title", ""), related.get("link", "")))
+                    sent_count += 1
+                    print(f"Rule fallback pushed due to ModelScope failure: {short_text(item['title'], 80)}")
+
+            print("Stop this run because ModelScope failed/rate-limited. Will retry next cron run.")
+            break
 
         if not ai_judgement.get("should_push", False):
             skipped_ai_count += 1
@@ -2409,10 +2515,23 @@ def main():
 
         if not message:
             skipped_ai_count += 1
-            print(f"Skip because summary failed: {short_text(item['title'], 80)}")
-            # 摘要失败通常也是限流/接口失败；不写 seen，下一轮重试。
-            print("Stop this run because ModelScope summary failed. Will retry next cron run.")
-            break
+            print(f"Summary failed: {short_text(item['title'], 80)}")
+
+            # AI judge 已经通过，但总结阶段限流时，用规则兜底卡片补发，避免高价值信息完全静默。
+            if should_rule_fallback_push(item, "429_rate_limited"):
+                message = fallback_message(
+                    item["title"],
+                    item["summary"],
+                    item["source"],
+                    item["link"],
+                    item["score_info"],
+                    ai_judgement,
+                    item.get("published_time", "未知"),
+                    related_updates,
+                )
+            else:
+                print("Stop this run because ModelScope summary failed. Will retry next cron run.")
+                break
 
         success = send_feishu(message)
 
