@@ -12,9 +12,8 @@ import requests
 import feedparser
 
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+# 注意：这里只使用魔搭 ModelScope 上的 DeepSeek 模型，不使用官网 DeepSeek API。
+# 不需要 DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL。
 
 MODELSCOPE_API_KEY = os.environ.get("MODELSCOPE_API_KEY", "")
 MODELSCOPE_BASE_URL = os.environ.get("MODELSCOPE_BASE_URL", "https://api-inference.modelscope.cn/v1")
@@ -32,11 +31,11 @@ SEEN_FILE = Path("seen.json")
 # 运行频率由 cron-job.org 控制。
 #
 # 你当前推荐 cron-job.org 表达式：
-# 0 0,2,4-23 * * *
+# 0 0,3,6,8,10,12,14,16,18,20,22 * * *
 #
 # 含义：
-# 00:00、02:00、04:00 执行
-# 05:00～23:00 每小时执行
+# 00:00、03:00、06:00 执行
+# 08:00～22:00 每 2 小时执行
 #
 # cron-job.org 时区必须是：
 # Asia/Shanghai
@@ -47,33 +46,38 @@ SEEN_FILE = Path("seen.json")
 # =========================
 HIGH_QUALITY_ONLY = True
 
-HOT_WINDOW_HOURS = 1
-OLD_ITEM_GRACE_HOURS = 2
+# cron-job.org 现在是白天约 2 小时一次、凌晨约 3 小时一次。
+# 这里看过去 4 小时，避免 RSS 源延迟、cron 延迟、GitHub Actions 排队导致漏抓。
+HOT_WINDOW_HOURS = 4
+OLD_ITEM_GRACE_HOURS = 6
 
-MIN_RULE_SCORE = 56
-MIN_PUSH_SCORE = 70
-MIN_SINGLE_REPORT_SCORE = 70
-MIN_GENERAL_AI_SCORE = 78
-PREFERRED_ALLOW_JUDGE_SCORE = 65
+# 规则层不要太死：先放更多候选给魔搭综合判断；最终是否推送仍由 AI judge + 动态数量控制。
+MIN_RULE_SCORE = 50
+MIN_PUSH_SCORE = 65
+MIN_SINGLE_REPORT_SCORE = 65
+MIN_GENERAL_AI_SCORE = 76
+PREFERRED_ALLOW_JUDGE_SCORE = 56
 
-SOFT_SEND_LIMIT = 3
-HIGH_SCORE_SEND_BYPASS = 88
-HARD_SEND_LIMIT = 8
+# 不固定 3 条或 5 条，由 should_stop_sending 动态控制。
+SOFT_SEND_LIMIT = 999
+HIGH_SCORE_SEND_BYPASS = 86
+HARD_SEND_LIMIT = 15
 
-MAX_JUDGE_COUNT = 28
+# 魔搭额度充足，允许更多候选进入深度判断。
+MAX_JUDGE_COUNT = 50
 
 # 重要：不要只抓 10 / 15 条，否则你看到的永远都是几分钟前。
 # RSS 本身不是全站数据库，但这里会尽量读取 RSS 当前返回的更多条目。
-MAX_ENTRIES_PER_FEED = 80
+MAX_ENTRIES_PER_FEED = 100
 
 SEND_EMPTY_HEARTBEAT = False
 
 # =========================
-# 模型调用策略：ModelScope 优先，DeepSeek 兜底
+# 模型调用策略：只使用魔搭 ModelScope 上的 DeepSeek，不调用官网 DeepSeek
 # =========================
 MODEL_REQUEST_INTERVAL_SECONDS = 2
 MODEL_MAX_RETRIES = 3
-MODEL_TIMEOUT_SECONDS = 75
+MODEL_TIMEOUT_SECONDS = 120
 MODEL_BACKOFF_BASE_SECONDS = 4
 
 MERGE_SIMILAR_EVENTS = True
@@ -102,116 +106,71 @@ CAP_REDDIT_SINGLE = 82
 # 只做风险观察，不输出教程
 # =========================
 PREFERRED_RISK_KEYWORDS = [
-    "pp",
-    "PP",
-    "PayPal",
-    "paypal",
-    "无卡",
-    "pp无卡",
-    "PP无卡",
-    "PP渠道",
-    "pp渠道",
-    "pp又复活",
-    "PP又复活",
-    "复活",
-    "拉闸",
-    "疑似拉闸",
-    "变回free",
-    "变回 Free",
-    "注册成功瞬间变回free",
-    "Plus变Free",
-    "plus变free",
-    "free",
-    "Free",
-    "手搓接码",
-    "接码",
-    "接码平台",
-    "接码渠道",
-    "手机接码",
-    "手机号随机",
-    "随机手机号",
-    "二次验证",
-    "二验",
-    "三次验证",
-    "强制二验",
-    "gpt登录二次验证",
-    "GPT登录二次验证",
-    "登录二次验证",
-    "所有邮箱都要接码",
-    "邮箱都要接码",
-    "邮箱注册",
-    "注册入口",
-    "手机号验证",
-    "手机验证",
-    "短信验证",
-    "text message",
-    "hero sms",
-    "Hero SMS",
-    "WhatsApp",
-    "whatsapp",
-    "巴西",
-    "智利",
-    "印尼",
-    "印度尼西亚",
-    "美国号码",
-    "同一号码",
-    "绑 3 次",
-    "绑定 3 次",
-    "成功率",
-    "很快",
-    "耗尽",
-    "库存",
-    "号码被消耗",
-    "401",
-    "403",
-    "AT",
-    "RT",
-    "session",
-    "auth.json",
-    "OAuth",
-    "access token",
-    "refresh token",
+    # PP / PayPal / 无卡
+    "pp", "PP", "PayPal", "paypal", "无卡", "pp无卡", "PP无卡",
+    "PP渠道", "pp渠道", "pp又复活", "PP又复活", "复活", "拉闸", "疑似拉闸",
+    "变回free", "变回 Free", "注册成功瞬间变回free", "Plus变Free", "plus变free",
+
+    # Free / Plus / Pro / Team / 账号风险
+    "free", "Free", "Plus", "plus", "Pro", "pro", "Team", "team",
+    "账号", "账号池", "共享号", "号池", "封号", "被封", "锁号", "禁用",
+    "风控", "风控收紧", "异常支付", "支付异常", "订阅异常", "会员异常",
+
+    # 接码 / 手机号 / 二验
+    "手搓接码", "接码", "接码平台", "接码渠道", "手机接码",
+    "手机号随机", "随机手机号", "二次验证", "二验", "三次验证", "强制二验",
+    "重新验证", "gpt登录二次验证", "GPT登录二次验证", "登录二次验证",
+    "所有邮箱都要接码", "邮箱都要接码", "邮箱注册", "注册入口",
+    "手机号验证", "手机验证", "短信验证", "text message", "SMS", "sms", "phone verification",
+
+    # 接码平台 / 国家
+    "hero sms", "Hero SMS", "HeroSMS", "WhatsApp", "whatsapp",
+    "巴西", "智利", "印尼", "印度尼西亚", "美国号码", "同一号码",
+    "绑 3 次", "绑定 3 次", "成功率", "很快", "耗尽", "库存", "号码被消耗",
+
+    # Token / OAuth / 401
+    "401", "403", "429", "AT", "RT", "session", "auth.json", "OAuth", "oauth",
+    "access token", "refresh token", "accessToken", "refresh_token", "unauthorized", "forbidden",
+
+    # Codex / CPA / Sub2API
+    "Codex", "codex", "CPA", "cpa", "Sub2API", "sub2api", "Cockpit", "cockpit",
+    "Codex Manager", "9router", "AxonHub",
+
+    # 额度 / 限流 / 订阅
+    "额度", "限额", "5h", "周限额", "weekly limit", "quota", "rate limit",
+    "billing", "refund", "out of credits", "workspace out of credits",
 ]
 
 PREFERRED_RISK_COMBO_HINTS = [
-    ["pp", "free"],
-    ["pp", "拉闸"],
-    ["pp", "401"],
-    ["pp", "无卡"],
-    ["pp", "复活"],
-    ["paypal", "plus"],
-    ["plus", "free"],
-    ["注册", "free"],
-    ["注册成功", "free"],
-    ["gpt", "二次验证"],
-    ["gpt", "接码"],
-    ["chatgpt", "接码"],
-    ["chatgpt", "手机号"],
-    ["codex", "text message"],
-    ["codex", "接码"],
-    ["codex", "短信"],
-    ["codex", "二次验证"],
-    ["team", "二次验证"],
-    ["team", "接码"],
-    ["邮箱", "接码"],
-    ["注册", "接码"],
-    ["手机号", "随机"],
-    ["手搓接码", "巴西"],
-    ["hero sms", "号码"],
-    ["hero sms", "二次验证"],
-    ["hero sms", "印尼"],
-    ["whatsapp", "验证码"],
-    ["401", "team"],
-    ["401", "ak"],
-    ["401", "cpa"],
-    ["oauth", "失效"],
-    ["access token", "失效"],
-    ["refresh token", "失效"],
+    ["pp", "free"], ["pp", "拉闸"], ["pp", "401"], ["pp", "无卡"], ["pp", "复活"],
+    ["paypal", "plus"], ["plus", "free"], ["注册", "free"], ["注册成功", "free"],
+
+    ["gpt", "二次验证"], ["gpt", "接码"], ["chatgpt", "接码"], ["chatgpt", "手机号"],
+    ["邮箱", "接码"], ["注册", "接码"], ["手机号", "随机"], ["手搓接码", "巴西"],
+
+    ["hero sms", "号码"], ["hero sms", "二次验证"], ["hero sms", "印尼"], ["whatsapp", "验证码"],
+
+    ["codex", "text message"], ["codex", "接码"], ["codex", "短信"], ["codex", "二次验证"],
+    ["codex", "额度"], ["codex", "free"], ["codex", "limit"],
+
+    ["team", "二次验证"], ["team", "接码"], ["team", "401"],
+
+    ["401", "team"], ["401", "ak"], ["401", "cpa"], ["401", "sub2api"],
+    ["oauth", "失效"], ["access token", "失效"], ["refresh token", "失效"],
+
+    ["cpa", "sub2api"], ["cpa", "冲突"], ["sub2api", "free"],
+    ["账号池", "401"], ["共享号", "封号"],
 ]
 
 
 RSS_SOURCES = [
+    # =========================
+    # 官方状态 / 官方发布：紧急消息优先
+    # =========================
     "https://status.openai.com/history.rss",
+    "https://status.anthropic.com/history.rss",
+    "https://www.githubstatus.com/history.rss",
+
     "https://github.com/openai/codex/issues.atom",
     "https://github.com/openai/codex/releases.atom",
     "https://github.com/anthropics/claude-code/releases.atom",
@@ -220,25 +179,49 @@ RSS_SOURCES = [
     "https://github.blog/changelog/label/copilot/feed/",
     "https://openai.com/news/rss.xml",
 
+    # =========================
+    # 中文社区：你最关心的 PP / 接码 / 二验 / 401 / Codex 多来自这里
+    # =========================
     "https://linux.do/latest.rss",
     "https://linux.do/top.rss",
     "https://linux.do/posts.rss",
 
-    "https://www.reddit.com/r/ClaudeAI/search.rss?q=Claude%20Code%20OR%20HERMES.md%20OR%20billing%20OR%20refund&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/OpenAI/search.rss?q=Codex%20OR%20rate%20limit%20OR%20banned%20OR%20suspended%20OR%20verification&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/ChatGPT/search.rss?q=Plus%20OR%20banned%20OR%20suspended%20OR%20verification%20OR%20text%20message&restrict_sr=1&sort=new",
-    "https://www.reddit.com/r/GitHubCopilot/search.rss?q=student%20OR%20model%20OR%20Codex%20OR%20Claude&restrict_sr=1&sort=new",
+    # =========================
+    # 国内 / 中文 AI 信息源：用于补充大事件，不作为高权重风控源
+    # =========================
+    "https://www.qbitai.com/feed",
+    "https://rsshub.app/36kr/newsflashes",
 
+    # =========================
+    # Reddit：海外社区反馈
+    # =========================
+    "https://www.reddit.com/r/ClaudeAI/search.rss?q=Claude%20Code%20OR%20HERMES.md%20OR%20billing%20OR%20refund%20OR%20ban%20OR%20suspended%20OR%20verification&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/OpenAI/search.rss?q=Codex%20OR%20rate%20limit%20OR%20banned%20OR%20suspended%20OR%20verification%20OR%20OAuth%20OR%20401%20OR%20text%20message&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/ChatGPT/search.rss?q=Plus%20OR%20Pro%20OR%20Free%20OR%20banned%20OR%20suspended%20OR%20verification%20OR%20text%20message%20OR%20phone%20OR%20SMS%20OR%20OAuth%20OR%20401&restrict_sr=1&sort=new",
+    "https://www.reddit.com/r/GitHubCopilot/search.rss?q=student%20OR%20model%20OR%20Codex%20OR%20Claude%20OR%20quota%20OR%20limit%20OR%20billing%20OR%20suspended&restrict_sr=1&sort=new",
+
+    # =========================
+    # Hacker News：海外技术社区
+    # =========================
     "https://hnrss.org/newest?q=OpenAI",
     "https://hnrss.org/newest?q=Claude",
     "https://hnrss.org/newest?q=Codex",
     "https://hnrss.org/newest?q=Gemini",
     "https://hnrss.org/newest?q=Claude%20Code",
     "https://hnrss.org/newest?q=Gemini%20CLI",
+    "https://hnrss.org/newest?q=OAuth",
+    "https://hnrss.org/newest?q=rate%20limit",
+    "https://hnrss.org/newest?q=API%20billing",
 
+    # =========================
+    # 聚合源
+    # =========================
     "https://aihot.virxact.com/feed.xml",
     "https://aihot.virxact.com/feed/daily.xml",
 
+    # =========================
+    # 泛 AI 源：保留，但权重低
+    # =========================
     "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
     "https://huggingface.co/blog/feed.xml",
 ]
@@ -745,6 +728,12 @@ def get_source_profile(source, rss_url):
     if "status.openai.com" in text:
         return {"name": "OpenAI Status", "authority": 25, "type": "A类 / 官方状态"}
 
+    if "status.anthropic.com" in text:
+        return {"name": "Anthropic Status", "authority": 24, "type": "A类 / 官方状态"}
+
+    if "githubstatus.com" in text:
+        return {"name": "GitHub Status", "authority": 23, "type": "A类 / 官方状态"}
+
     if "github.com/openai/codex/issues" in text:
         return {"name": "OpenAI Codex Issues", "authority": 23, "type": "A类 / 官方仓库用户反馈"}
 
@@ -786,6 +775,12 @@ def get_source_profile(source, rss_url):
 
     if "aihot.virxact.com/feed/daily.xml" in text:
         return {"name": "AIHOT 日报", "authority": 14, "type": "C类 / 中文日报聚合"}
+
+    if "qbitai.com" in text:
+        return {"name": "量子位", "authority": 12, "type": "C类 / 中文 AI 媒体"}
+
+    if "rsshub.app/36kr/newsflashes" in text or "36kr" in text:
+        return {"name": "36氪快讯", "authority": 10, "type": "C类 / 中文快讯聚合"}
 
     if "huggingface.co" in text:
         return {"name": "HuggingFace Blog", "authority": 8, "type": "D类 / 技术博客"}
@@ -897,7 +892,8 @@ def has_preferred_signal(title, summary):
 
 def time_score_from_age(age_minutes):
     # 不是“越新越好”。
-    # 你要的是过去 1 小时热点，所以 30～60 分钟反而更适合判断，评论和反馈更成熟。
+    # 你要的是过去 4 小时内的热点综合判断：
+    # 30～180 分钟通常比刚发几分钟更适合判断，因为评论和同类反馈更成熟。
     if age_minutes is None:
         return 2, "发布时间未知 +2"
 
@@ -910,10 +906,16 @@ def time_score_from_age(age_minutes):
     if age_minutes <= 60:
         return 8, "30-60分钟成熟热点 +8"
 
-    if age_minutes <= OLD_ITEM_GRACE_HOURS * 60:
-        return 2, "1-2小时旧热点 +2"
+    if age_minutes <= 180:
+        return 9, "1-3小时多源综合窗口 +9"
 
-    return 0, "超过2小时 +0"
+    if age_minutes <= HOT_WINDOW_HOURS * 60:
+        return 7, "3-4小时热点补抓 +7"
+
+    if age_minutes <= OLD_ITEM_GRACE_HOURS * 60:
+        return 2, "4-6小时旧热点 +2"
+
+    return 0, "超过6小时 +0"
 
 
 def should_ignore_by_time(published_dt, score_info, title, summary):
@@ -1191,6 +1193,12 @@ def score_news(title, summary, source, rss_url, published_dt=None):
     elif "top" in rss_url:
         source_freshness_score += 2
         reasons.append("热门流 +2")
+    elif "qbitai.com" in rss_url:
+        source_freshness_score += 1
+        reasons.append("量子位中文 AI 源 +1")
+    elif "36kr" in rss_url:
+        source_freshness_score += 1
+        reasons.append("36氪快讯源 +1")
 
     source_freshness_score = min(source_freshness_score, 3)
     score += source_freshness_score
@@ -1279,8 +1287,40 @@ def score_news(title, summary, source, rss_url, published_dt=None):
     }
 
 
+def is_official_emergency(score_info):
+    source_profile = score_info.get("source_profile", {})
+    source_name = source_profile.get("name", "")
+    authority = source_profile.get("authority", 0)
+
+    critical_hits = score_info.get("critical_hits", [])
+    has_critical = score_info.get("has_critical", False)
+
+    official_names = [
+        "OpenAI Status",
+        "Anthropic Status",
+        "GitHub Status",
+        "OpenAI News",
+        "OpenAI Codex Issues",
+        "OpenAI Codex Releases",
+        "Claude Code Releases",
+        "Gemini CLI Releases",
+        "GitHub Copilot Changelog",
+    ]
+
+    if source_name in official_names and (has_critical or critical_hits):
+        return True
+
+    if authority >= 21 and (has_critical or critical_hits):
+        return True
+
+    return False
+
+
 def should_skip_by_rules(score_info):
     score = score_info["score"]
+
+    if is_official_emergency(score_info):
+        return False, ""
 
     if score_info["block_hits"]:
         return True, "命中黑名单"
@@ -1422,21 +1462,15 @@ def call_openai_compatible_chat(provider_name, api_key, base_url, model, message
     return None, last_error or "unknown_error"
 
 
-def call_llm_json(messages, max_tokens=700):
-    # 第一优先级：魔搭 ModelScope
+def call_llm_json(messages, max_tokens=1200):
+    # 只使用魔搭 ModelScope。这里的模型可以是魔搭上的 deepseek-ai/DeepSeek-V4-Flash，
+    # 但不会调用官网 DeepSeek API。
     providers = [
         {
             "name": "ModelScope",
             "api_key": MODELSCOPE_API_KEY,
             "base_url": MODELSCOPE_BASE_URL,
             "model": MODELSCOPE_MODEL,
-            "response_format": {"type": "json_object"},
-        },
-        {
-            "name": "DeepSeek",
-            "api_key": DEEPSEEK_API_KEY,
-            "base_url": DEEPSEEK_BASE_URL,
-            "model": DEEPSEEK_MODEL,
             "response_format": {"type": "json_object"},
         },
     ]
@@ -1468,19 +1502,13 @@ def call_llm_json(messages, max_tokens=700):
     return None, "none", "all_failed"
 
 
-def call_llm_text(messages, max_tokens=950):
+def call_llm_text(messages, max_tokens=1800):
     providers = [
         {
             "name": "ModelScope",
             "api_key": MODELSCOPE_API_KEY,
             "base_url": MODELSCOPE_BASE_URL,
             "model": MODELSCOPE_MODEL,
-        },
-        {
-            "name": "DeepSeek",
-            "api_key": DEEPSEEK_API_KEY,
-            "base_url": DEEPSEEK_BASE_URL,
-            "model": DEEPSEEK_MODEL,
         },
     ]
 
@@ -1617,7 +1645,7 @@ def normalize_ai_judgement(data, score_info):
 
 
 def ai_judge_news(title, summary, source, link, score_info, related_updates=None):
-    if not MODELSCOPE_API_KEY and not DEEPSEEK_API_KEY:
+    if not MODELSCOPE_API_KEY:
         return default_ai_judgement(score_info), "no_api_key"
 
     source_profile = score_info["source_profile"]
@@ -1631,7 +1659,7 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
 
 必须遵守：
 1. 只能根据输入判断，不要编造。
-2. 当前是中高质量模式：70 分以上有资格推送，但普通低价值内容不要推。
+2. 当前是中高质量模式：65 分以上有资格进入判断，但普通低价值内容不要推。你需要结合主信息和 related_updates 多条公开信息做综合判断。
 3. 如果原文没有“大规模 / 多人 / 官方确认”，禁止判断为大规模事件。
 4. 单个帖子、单个用户、疑似传言，scope 必须是“单点反馈”或“未确认”。
 5. 涉及账号、封号、接码、OAuth、token、401、Plus、Pro、Codex、PP、无卡，只能做风险判断，不能提供绕风控、薅号、盗号、规避检测方法。
@@ -1641,7 +1669,7 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
 9. Reddit 搜索结果如果只是普通聊天、提示词、娱乐、观点，不要推送。
 10. 如果 score >= 88 且确实与核心主题相关，可以更积极推送。
 11. 用户特别偏好这类情报：pp又复活、pp渠道疑似拉闸、注册成功瞬间变回free、gpt登录二次验证、手机号随机、手搓接码、巴西/智利/印尼/hero sms/WhatsApp 接码反馈。命中这些时更积极推送，但仍然要写成风险观察，不要写教程。
-12. 如果 related_updates 里有同类反馈，可以把 scope 评为“多点反馈”或“社区多点反馈”，但不能写官方确认。
+12. 如果 related_updates 里有同类反馈，需要综合判断是否形成同一事件；如果 2 条以上都指向账号验证、额度、401、接码、PP、Codex、CPA、Sub2API，可把 scope 评为“社区多点反馈”，但不能写官方确认。
 13. 如果只是求助/询问/帖子已删/信息不完整，应该降低 confidence，并说明信息不足。
 
 必须输出合法 JSON，格式示例：
@@ -1675,7 +1703,7 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
 - preferred_hits: {score_info.get("preferred_hits", [])}
 
 中高质量推送标准：
-- 70 分以上才有资格推送。
+- 65 分以上才有资格进入判断，是否推送由你结合多条 RSS 质量决定。
 - 普通低价值内容不要推。
 - 单点反馈可以推，但必须是账号 / Codex / OAuth / 401 / Plus / PP / 无卡 / 接码 / 二次验证 / 手机号验证 / Claude Code / Copilot / 额度 / 风控相关。
 - 没有核心主题、没有严重事件、没有官方确认的普通 AI 新闻不要推。
@@ -1699,7 +1727,7 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
         {"role": "user", "content": user_prompt},
     ]
 
-    judgement, provider_name, provider_status = call_llm_json(messages, max_tokens=700)
+    judgement, provider_name, provider_status = call_llm_json(messages, max_tokens=1200)
 
     if not judgement:
         print("AI judge failed: all providers failed")
@@ -1816,7 +1844,7 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
 
     display_title = no_hype_title or title
 
-    if not MODELSCOPE_API_KEY and not DEEPSEEK_API_KEY:
+    if not MODELSCOPE_API_KEY:
         print("No LLM API key set, use fallback message.")
         return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time, related_updates)
 
@@ -1849,7 +1877,7 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
 AI 预判：
 {json.dumps(ai_judgement, ensure_ascii=False)}
 """,
-        5600
+        7600
     )
 
     system_prompt = """你是一个飞书 AI 情报频道的中文编辑。
@@ -1925,7 +1953,7 @@ AI 预判：
         {"role": "user", "content": user_prompt},
     ]
 
-    body, provider_name, provider_status = call_llm_text(messages, max_tokens=950)
+    body, provider_name, provider_status = call_llm_text(messages, max_tokens=1800)
 
     if not body:
         print("Summary failed: all providers failed")
@@ -1991,13 +2019,25 @@ def send_empty_heartbeat(summary_text):
 
 
 def should_stop_sending(sent_count, next_score):
-    if sent_count < SOFT_SEND_LIMIT:
-        return False
-
+    # 不固定 3 条或 5 条。
+    # 分数越高，允许推送越多；低分内容自动少推。
     if sent_count >= HARD_SEND_LIMIT:
         return True
 
-    if next_score >= HIGH_SCORE_SEND_BYPASS:
+    # 90+ 高价值内容，不受软限制影响
+    if next_score >= 90:
+        return False
+
+    # 80+ 中高价值内容，最多允许到 10 条
+    if next_score >= 80 and sent_count < 10:
+        return False
+
+    # 70+ 普通高质量内容，最多允许到 6 条
+    if next_score >= 70 and sent_count < 6:
+        return False
+
+    # 65+ 只允许少量进入
+    if next_score >= 65 and sent_count < 3:
         return False
 
     return True
@@ -2006,6 +2046,18 @@ def should_stop_sending(sent_count, next_score):
 def should_merge_candidates(a, b):
     if not MERGE_SIMILAR_EVENTS:
         return False
+
+    important_theme_parts = ["pp", "free", "phone_verification", "mfa", "codex", "team", "token_401", "quota"]
+    a_theme = a.get("theme", "general")
+    b_theme = b.get("theme", "general")
+
+    if a_theme != "general" and b_theme != "general":
+        a_parts = set(a_theme.split("+"))
+        b_parts = set(b_theme.split("+"))
+        overlap = a_parts & b_parts
+
+        if overlap and any(part in important_theme_parts for part in overlap):
+            return True
 
     if a.get("theme") != "general" and a.get("theme") == b.get("theme"):
         if similarity(a.get("title", ""), b.get("title", "")) >= 0.32:
@@ -2089,7 +2141,7 @@ def should_mark_seen_when_skipped(score_info, published_dt, title, summary):
     if score_info.get("block_hits"):
         return True
 
-    if score_info["score"] < 45:
+    if score_info["score"] < 38:
         return True
 
     # 超过 2 小时旧内容，直接 seen。
@@ -2107,9 +2159,7 @@ def main():
     print("MODELSCOPE_API_KEY set:", bool(MODELSCOPE_API_KEY))
     print("MODELSCOPE_BASE_URL:", MODELSCOPE_BASE_URL)
     print("MODELSCOPE_MODEL:", MODELSCOPE_MODEL)
-    print("DEEPSEEK_API_KEY set:", bool(DEEPSEEK_API_KEY))
-    print("DEEPSEEK_BASE_URL:", DEEPSEEK_BASE_URL)
-    print("DEEPSEEK_MODEL:", DEEPSEEK_MODEL)
+    print("OFFICIAL_DEEPSEEK_DISABLED:", True)
     print("FEISHU_WEBHOOK set:", bool(FEISHU_WEBHOOK))
     print("FEISHU_WEBHOOK length:", len(FEISHU_WEBHOOK))
     print("HIGH_QUALITY_ONLY:", HIGH_QUALITY_ONLY)
@@ -2129,7 +2179,7 @@ def main():
     print("MERGE_SIMILAR_EVENTS:", MERGE_SIMILAR_EVENTS)
     print("CAP_LINUX_SINGLE_PREFERRED:", CAP_LINUX_SINGLE_PREFERRED)
     print("CAP_DELETED_OR_INCOMPLETE:", CAP_DELETED_OR_INCOMPLETE)
-    print("Cron recommended: 0 0,2,4-23 * * *")
+    print("Cron recommended: 0 0,3,6,8,10,12,14,16,18,20,22 * * *")
 
     seen = load_seen()
     new_seen = set(seen)
