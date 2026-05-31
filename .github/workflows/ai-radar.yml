@@ -54,18 +54,26 @@ jobs:
       - name: Check secrets
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
+          MODELSCOPE_BASE_URL: ${{ secrets.MODELSCOPE_BASE_URL }}
+          MODELSCOPE_MODEL: ${{ secrets.MODELSCOPE_MODEL }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: |
           python - <<'PY'
           import os
           print("DEEPSEEK_API_KEY set:", bool(os.environ.get("DEEPSEEK_API_KEY")))
+          print("MODELSCOPE_API_KEY set:", bool(os.environ.get("MODELSCOPE_API_KEY")))
+          print("MODELSCOPE_BASE_URL set:", bool(os.environ.get("MODELSCOPE_BASE_URL")))
+          print("MODELSCOPE_MODEL set:", bool(os.environ.get("MODELSCOPE_MODEL")))
           print("FEISHU_WEBHOOK set:", bool(os.environ.get("FEISHU_WEBHOOK")))
-          print("FEISHU_WEBHOOK length:", len(os.environ.get("FEISHU_WEBHOOK", "")))
           PY
 
       - name: Run bot
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
+          MODELSCOPE_BASE_URL: ${{ secrets.MODELSCOPE_BASE_URL }}
+          MODELSCOPE_MODEL: ${{ secrets.MODELSCOPE_MODEL }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: python main.py
 
