@@ -76,7 +76,7 @@ SEND_EMPTY_HEARTBEAT = False
 # 模型调用策略：只使用魔搭 ModelScope 上的 DeepSeek，不调用官网 DeepSeek
 # =========================
 # 魔搭 API 可能有分钟级限流；宁可慢一点，也不要一轮里连续 429 后乱推。
-MODEL_REQUEST_INTERVAL_SECONDS = 15
+MODEL_REQUEST_INTERVAL_SECONDS = 25
 # 魔搭限流时不要一轮里反复硬撞；失败后用安全规则兜底，下一轮 cron 再重试。
 MODEL_MAX_RETRIES = 1
 MODEL_TIMEOUT_SECONDS = 120
@@ -84,12 +84,12 @@ MODEL_BACKOFF_BASE_SECONDS = 30
 
 # 当 ModelScope 429 时，只允许“强相关/高分/多条同类”的规则兜底推送，避免完全静默，也避免垃圾乱推。
 RATE_LIMIT_LOCAL_FALLBACK_ENABLED = True
-RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE = 86
-RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND = 2
+RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE = 80
+RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND = 4
 
 MERGE_SIMILAR_EVENTS = True
 MERGE_SIMILARITY_THRESHOLD = 0.76
-MAX_RELATED_UPDATES_IN_CARD = 5
+MAX_RELATED_UPDATES_IN_CARD = 4
 
 
 # =========================
@@ -1678,7 +1678,8 @@ def should_rule_fallback_push(item, judge_status):
 
     score_info = item.get("score_info", {})
     score = item.get("score", 0)
-    related_count = len(item.get("related_updates", []))
+    related_updates = filter_related_updates_for_card(item.get("title", ""), item.get("summary", ""), item.get("source", ""), item.get("related_updates", []))
+    related_count = len(related_updates)
     theme = item.get("theme", "general")
     source_profile = score_info.get("source_profile", {})
     source_name = source_profile.get("name", "")
@@ -1686,30 +1687,32 @@ def should_rule_fallback_push(item, judge_status):
     if is_official_emergency(score_info):
         return True
 
+    # 绝不兜底推 general 主题，避免“有趣网站/音乐/杂谈”混进来。
+    if theme == "general":
+        return False
+
     # 用户最关心：PP / 接码 / 二验 / 401 / OAuth / Codex / CPA / Sub2API / 额度。
+    if score >= RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE and score_info.get("has_preferred_signal"):
+        return True
+
+    # L站高质量问题反馈：分高 + 强主题，可以用规则兜底。
     if (
-        score >= RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE
-        and score_info.get("has_preferred_signal")
+        score >= 78
+        and (source_name.startswith("LINUX") or source_name == "Linux.do")
         and theme != "general"
-        and related_count >= 1
+        and (score_info.get("has_preferred_signal") or related_count >= 1)
     ):
         return True
 
-    # L站高质量问题反馈：分高 + 强偏好 + 非 general，可以用规则兜底。
-    if (
-        score >= 88
-        and (source_name.startswith("LINUX") or source_name == "Linux.do")
-        and score_info.get("has_preferred_signal")
-        and theme != "general"
-    ):
+    # 多条真正同类反馈，即使 AI 限流也可以推一条观察卡。
+    if score >= 78 and related_count >= 2 and theme != "general":
         return True
 
     return False
 
-
 def build_rate_limit_fallback_judgement(item, judge_status):
     score_info = item.get("score_info", {})
-    related_count = len(item.get("related_updates", []))
+    related_count = len(filter_related_updates_for_card(item.get("title", ""), item.get("summary", ""), item.get("source", ""), item.get("related_updates", [])))
     scope = "社区多点反馈" if related_count else "单点反馈"
 
     if is_official_emergency(score_info):
@@ -1833,13 +1836,95 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
     return normalize_ai_judgement(judgement, score_info), "ok"
 
 
-def fallback_message(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
+
+def is_mostly_english(text):
+    text = text or ""
+    letters = re.findall(r"[A-Za-z]", text)
+    cjk = re.findall(r"[\u4e00-\u9fff]", text)
+    return len(letters) >= 30 and len(letters) > len(cjk) * 2
+
+
+def humanize_title_to_chinese(title, score_info=None):
+    title = clean_html(title or "")
+    if not title:
+        return "未命名情报"
+
+    lower = title.lower()
+
+    # 常见英文标题本地中文化；完整翻译仍优先交给 ModelScope。
+    replacements = [
+        ("claude status site", "Claude 状态页面使用反馈"),
+        ("incident with actions and pages", "GitHub Actions 与 Pages 服务异常"),
+        ("actions is experiencing degraded availability", "GitHub Actions 可用性下降"),
+        ("elevated errors", "错误率升高"),
+        ("rate limit", "限流"),
+        ("billing", "计费"),
+        ("verification", "验证"),
+        ("text message", "短信验证"),
+        ("suspended", "账号暂停"),
+        ("banned", "账号封禁"),
+    ]
+    for key, value in replacements:
+        if key in lower:
+            if is_mostly_english(title):
+                return f"{value}\n原题：{short_text(title, 120)}"
+            return value
+
+    if is_mostly_english(title):
+        # 限流兜底时不要把英文当主标题，只保留原题做追溯。
+        return f"英文社区反馈待中文解读\n原题：{short_text(title, 120)}"
+
+    return title
+
+
+def chinese_safe_summary(summary):
+    summary = clean_html(summary or "")
+    if not summary:
+        return "原文摘要为空，建议点开来源查看详情。"
+    if is_mostly_english(summary):
+        return "原文为英文。ModelScope 当前可能限流，已避免直接推送英文长段；下一轮恢复后会优先生成中文翻译和解读。"
+    return short_text(summary, 460)
+
+
+def filter_related_updates_for_card(title, summary, source, related_updates):
     related_updates = related_updates or []
+    if not related_updates:
+        return []
+
+    main_theme = get_event_theme(title, summary)
+    main_parts = set(main_theme.split("+")) if main_theme != "general" else set()
+    result = []
+    seen_titles = set()
+
+    for update in related_updates:
+        u_title = update.get("title", "")
+        u_source = update.get("source", "")
+        if not u_title or u_title in seen_titles:
+            continue
+
+        u_theme = get_event_theme(u_title, "")
+        u_parts = set(u_theme.split("+")) if u_theme != "general" else set()
+        overlap = main_parts & u_parts
+        title_sim = similarity(title, u_title)
+
+        official_same_source = ("Status" in source or "status" in source) and source == u_source
+        strong_overlap = len(overlap) >= 2 or any(part in overlap for part in ["mfa", "phone_verification", "codex", "quota", "team"])
+
+        if official_same_source or title_sim >= 0.58 or strong_overlap:
+            result.append(update)
+            seen_titles.add(u_title)
+
+        if len(result) >= MAX_RELATED_UPDATES_IN_CARD:
+            break
+
+    return result
+
+def fallback_message(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
+    related_updates = filter_related_updates_for_card(title, summary, source, related_updates or [])
 
     level = score_info["level"]
     score = score_info["score"]
     rating = score_info["rating"]
-    reasons = score_info["reasons"]
     source_profile = score_info["source_profile"]
 
     action = ai_judgement.get("action") or score_info["action"]
@@ -1848,7 +1933,8 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement, pub
     scope = ai_judgement.get("scope", "未确认")
     category = ai_judgement.get("category", "其他")
     reason = ai_judgement.get("reason", "公开来源自动抓取")
-    title_text = ai_judgement.get("no_hype_title") or short_text(title, 90)
+    title_text = ai_judgement.get("no_hype_title") or title
+    title_text = humanize_title_to_chinese(title_text, score_info)
 
     if level == "爆炸":
         prefix = "🚨"
@@ -1857,16 +1943,34 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement, pub
     else:
         prefix = "🟡"
 
-    reason_text = "、".join(reasons[:5]) if reasons else "公开来源自动抓取"
+    safe_summary = chinese_safe_summary(summary)
 
     related_text = ""
     if related_updates:
         lines = []
         for update in related_updates[:MAX_RELATED_UPDATES_IN_CARD]:
-            lines.append(f"- {update.get('published_time', '未知')}：{short_text(update.get('title', ''), 80)}")
+            u_title = humanize_title_to_chinese(update.get("title", ""))
+            lines.append(f"- {update.get('published_time', '未知')}：{short_text(u_title, 90)}")
         related_text = "\n\n💬 同类补充：\n" + "\n".join(lines)
 
-    return f"""{prefix} {short_text(title_text, 80)}
+    impact_lines = []
+    theme = get_event_theme(title, summary)
+    if "codex" in theme:
+        impact_lines.append("- 可能影响 Codex 使用、额度判断或相关自动化工作流。")
+    if "mfa" in theme or "phone_verification" in theme:
+        impact_lines.append("- 可能影响登录验证、手机号验证、接码成功率或账号稳定性。")
+    if "token_401" in theme:
+        impact_lines.append("- 可能影响 OAuth / token / 401 相关调用稳定性。")
+    if "quota" in theme:
+        impact_lines.append("- 可能影响额度、限流、计费或中转可用性。")
+    if not impact_lines:
+        impact_lines.append("- 当前只作为公开来源风险观察，是否影响你需要结合后续反馈确认。")
+
+    today_advice = ""
+    if level in ["爆炸", "高"] or category in ["账号风控 / 额度 / 接码 / 工具异常", "官方服务异常"]:
+        today_advice = f"\n\n🧭 今日建议：\n- 先观察下一轮 RSS / 社区反馈；如果涉及账号、接码、401、额度或中转，暂时不要高频折腾。\n- 来源：{source}\n- 发布时间：{published_time}"
+
+    return f"""{prefix} {short_text(title_text, 100)}
 
 {level_icon(level)} 兴趣等级：{level}
 🔥 评分：{score}/100
@@ -1874,24 +1978,25 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement, pub
 📌 建议：{action}
 
 📝 变化：
-- {short_text(summary, 420)}
+- {safe_summary}
 
 🔎 关键信息：
 - 类型：{category}
 - 范围：{scope}
 - 来源类型：{source_profile["type"]}
-- 触发原因：{reason_text}
 
-⚠️ 风险判断：{risk}
-- {reason}{related_text}
+🎯 可能影响：
+{chr(10).join(impact_lines)}
+
+🧯 风险判断：{risk}
+- {reason}{today_advice}{related_text}
 
 可信度：{confidence}
-理由：来自公开来源，需结合更多反馈继续观察。
+理由：来自公开来源；如果这是限流兜底消息，完整中文解读会在 ModelScope 恢复后重试。
 
 来源：{source}
 发布时间：{published_time}
 链接：{link}"""
-
 
 def build_related_updates_text(related_updates):
     if not related_updates:
@@ -1924,7 +2029,7 @@ def remove_duplicate_interest_lines(text):
 
 
 def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
-    related_updates = related_updates or []
+    related_updates = filter_related_updates_for_card(title, summary, source, related_updates or [])
 
     level = score_info["level"]
     score = score_info["score"]
@@ -1937,7 +2042,7 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
     category = ai_judgement.get("category", "其他")
     no_hype_title = ai_judgement.get("no_hype_title", "")
 
-    display_title = no_hype_title or title
+    display_title = humanize_title_to_chinese(no_hype_title or title, score_info)
 
     if not MODELSCOPE_API_KEY:
         print("No LLM API key set, use fallback message.")
@@ -1995,6 +2100,9 @@ AI 预判：
 14. 不要输出“兴趣等级、评分、评级、建议”，这些由程序统一添加，避免重复。
 15. 如果有同类合并反馈，要在“💬 同类补充”中整理，不要当成多条重复消息。
 16. 如果帖子已删、只是求助、只是单人询问，要明确“信息不完整/仅单点反馈”，不要夸大。
+17. 如果标题或正文是英文，必须翻译成中文并解释，不要直接粘贴英文长段。
+18. 标题必须让中文用户一眼看懂发生了什么；如果原题是英文，可以在标题下保留“原题：...”。
+19. 飞书正文不要显示“触发原因、来源权威、核心主题+18、规则命中”等程序调试日志。
 """
 
     user_prompt = f"""请生成飞书情报卡片正文。
@@ -2009,7 +2117,7 @@ AI 预判：
 你只输出以下正文部分，可按需要省略没有依据的小节：
 
 📝 变化：
-- 写清楚发生了什么
+- 用中文写清楚发生了什么；英文原文必须翻译，不要直接粘贴英文长段
 
 💰 成本/渠道：
 - 只有原文出现价格、渠道、国家、hero sms、WhatsApp、巴西/智利/印尼等信息才写
@@ -2142,33 +2250,55 @@ def should_merge_candidates(a, b):
     if not MERGE_SIMILAR_EVENTS:
         return False
 
-    important_theme_parts = ["pp", "free", "phone_verification", "mfa", "codex", "team", "token_401", "quota"]
     a_theme = a.get("theme", "general")
     b_theme = b.get("theme", "general")
+    a_title = a.get("title", "")
+    b_title = b.get("title", "")
+    a_source = a.get("source", "")
+    b_source = b.get("source", "")
+
+    # 官方状态源只和同一官方源 / 高相似标题合并，避免混进社区杂帖。
+    official_markers = ["Status", "status", "Incident", "incident"]
+    if any(m in a_source for m in official_markers) or any(m in b_source for m in official_markers):
+        if a_source == b_source and similarity(a_title, b_title) >= 0.38:
+            return True
+        if similarity(a_title, b_title) >= 0.72:
+            return True
+        return False
+
+    # 泛 pp / free / token 词太容易误合并，必须满足更强条件。
+    weak_broad_parts = {"pp", "free", "token_401", "general"}
 
     if a_theme != "general" and b_theme != "general":
         a_parts = set(a_theme.split("+"))
         b_parts = set(b_theme.split("+"))
         overlap = a_parts & b_parts
 
-        if overlap and any(part in important_theme_parts for part in overlap):
+        # 只有单个宽泛主题重叠，不直接合并。
+        if len(overlap) == 1 and list(overlap)[0] in weak_broad_parts:
+            return similarity(a_title, b_title) >= 0.58
+
+        # 两个以上主题重叠，或同为强主题，才合并。
+        strong_parts = {"phone_verification", "mfa", "codex", "team", "quota", "claude"}
+        if len(overlap) >= 2:
+            return True
+        if overlap and any(part in strong_parts for part in overlap) and similarity(a_title, b_title) >= 0.25:
             return True
 
-    if a.get("theme") != "general" and a.get("theme") == b.get("theme"):
-        if similarity(a.get("title", ""), b.get("title", "")) >= 0.32:
+    if a_theme != "general" and a_theme == b_theme:
+        if similarity(a_title, b_title) >= 0.45:
             return True
 
-        a_text = f"{a.get('title', '')} {a.get('summary', '')}"
-        b_text = f"{b.get('title', '')} {b.get('summary', '')}"
+        a_text = f"{a_title} {a.get('summary', '')}"
+        b_text = f"{b_title} {b.get('summary', '')}"
 
-        if similarity(a_text, b_text) >= MERGE_SIMILARITY_THRESHOLD:
+        if similarity(a_text, b_text) >= 0.82:
             return True
 
-    if similarity(a.get("title", ""), b.get("title", "")) >= 0.84:
+    if similarity(a_title, b_title) >= 0.86:
         return True
 
     return False
-
 
 def merge_related_candidates(candidates):
     if not MERGE_SIMILAR_EVENTS:
@@ -2274,6 +2404,8 @@ def main():
     print("RATE_LIMIT_LOCAL_FALLBACK_ENABLED:", RATE_LIMIT_LOCAL_FALLBACK_ENABLED)
     print("RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE:", RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE)
     print("RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND:", RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND)
+    print("CHINESE_OUTPUT_ENFORCED:", True)
+    print("STRICT_RELATED_FILTER_ENABLED:", True)
     print("MERGE_SIMILAR_EVENTS:", MERGE_SIMILAR_EVENTS)
     print("CAP_LINUX_SINGLE_PREFERRED:", CAP_LINUX_SINGLE_PREFERRED)
     print("CAP_DELETED_OR_INCOMPLETE:", CAP_DELETED_OR_INCOMPLETE)
@@ -2411,6 +2543,7 @@ def main():
 
     sent_count = 0
     judged_count = 0
+    rate_limit_fallback_sent = 0
 
     for item in candidates:
         if judged_count >= MAX_JUDGE_COUNT:
@@ -2464,8 +2597,8 @@ def main():
             print(f"AI judge failed: {short_text(item['title'], 80)} | status={judge_status} | reason={ai_judgement.get('reason')}")
 
             # 429 / all_failed 时不要继续硬撞魔搭。
-            # 但对官方紧急事故、L站高分强相关、多条同类反馈，允许规则兜底推一条，避免完全静默。
-            if should_rule_fallback_push(item, judge_status):
+            # 但对官方紧急事故、L站高分强相关、多条同类反馈，允许规则兜底推送。
+            if should_rule_fallback_push(item, judge_status) and rate_limit_fallback_sent < RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND:
                 fallback_judgement = build_rate_limit_fallback_judgement(item, judge_status)
                 message = fallback_message(
                     item["title"],
@@ -2475,21 +2608,29 @@ def main():
                     item["score_info"],
                     fallback_judgement,
                     item.get("published_time", "未知"),
-                    related_updates,
+                    item.get("related_updates", []),
                 )
                 success = send_feishu(message)
 
                 # 兜底推送成功才写 seen；失败则下一轮重试。
                 if success:
                     new_seen.add(item["uid"])
-                    for related in related_updates:
+                    for related in filter_related_updates_for_card(item["title"], item["summary"], item["source"], item.get("related_updates", [])):
                         if related.get("link"):
                             new_seen.add(item_id(related.get("title", ""), related.get("link", "")))
                     sent_count += 1
+                    rate_limit_fallback_sent += 1
                     print(f"Rule fallback pushed due to ModelScope failure: {short_text(item['title'], 80)}")
 
-            print("Stop this run because ModelScope failed/rate-limited. Will retry next cron run.")
-            break
+                # 不再继续调用模型，但继续看后面是否还有可规则兜底的高价值候选。
+                continue
+
+            if rate_limit_fallback_sent >= RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND:
+                print("Stop this run: rate-limit fallback max reached. Will retry next cron run.")
+                break
+
+            print("Skip this item because ModelScope failed/rate-limited. Continue checking next candidate for safe rule fallback.")
+            continue
 
         if not ai_judgement.get("should_push", False):
             skipped_ai_count += 1
