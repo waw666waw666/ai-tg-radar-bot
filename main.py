@@ -1669,7 +1669,7 @@ def failed_ai_judgement(reason="AI 判断失败，跳过推送"):
 
 
 def should_rule_fallback_push(item, judge_status):
-    """ModelScope 限流时的安全兜底：只推强相关、高分、多证据或官方紧急内容。"""
+    """ModelScope 不可用时的安全兜底：只推官方事故或中文 L 站强相关内容。"""
     if not RATE_LIMIT_LOCAL_FALLBACK_ENABLED:
         return False
 
@@ -1678,17 +1678,22 @@ def should_rule_fallback_push(item, judge_status):
 
     score_info = item.get("score_info", {})
     score = item.get("score", 0)
-    related_updates = filter_related_updates_for_card(item.get("title", ""), item.get("summary", ""), item.get("source", ""), item.get("related_updates", []))
+    title = item.get("title", "")
+    summary = item.get("summary", "")
+    related_updates = filter_related_updates_for_card(title, summary, item.get("source", ""), item.get("related_updates", []))
     related_count = len(related_updates)
     theme = item.get("theme", "general")
     source_profile = score_info.get("source_profile", {})
     source_name = source_profile.get("name", "")
 
+    if should_skip_when_ai_unavailable(title, summary, item.get("source", ""), score_info):
+        return False
+
     if is_official_emergency(score_info):
         return True
 
     # 绝不兜底推 general 主题，避免“有趣网站/音乐/杂谈”混进来。
-    if theme == "general":
+    if theme == "general" and not is_high_value_question(title, summary):
         return False
 
     # 用户最关心：PP / 接码 / 二验 / 401 / OAuth / Codex / CPA / Sub2API / 额度。
@@ -1710,6 +1715,19 @@ def should_rule_fallback_push(item, judge_status):
 
     return False
 
+
+
+def classify_local_category(title, summary):
+    text = f"{title} {summary}".lower()
+    if any(k in text for k in ["pp", "paypal", "gopay", "支付", "无卡"]):
+        return "支付 / PP / 渠道风险"
+    if any(k in text for k in ["接码", "手机号", "短信", "二验", "二次验证", "验证", "phone", "sms"]):
+        return "账号验证 / 接码风险"
+    if any(k in text for k in ["codex", "sub2api", "cpa", "401", "oauth", "token", "auth.json", "额度"]):
+        return "Codex / 中转 / 额度异常"
+    if any(k in text for k in ["claude code", "copilot", "cli", "插件", "agent", "mcp"]):
+        return "AI 工具 / 工作流问题"
+    return "社区风险观察"
 def build_rate_limit_fallback_judgement(item, judge_status):
     score_info = item.get("score_info", {})
     related_count = len(filter_related_updates_for_card(item.get("title", ""), item.get("summary", ""), item.get("source", ""), item.get("related_updates", [])))
@@ -1721,13 +1739,13 @@ def build_rate_limit_fallback_judgement(item, judge_status):
         risk = "高"
         confidence = "高"
         action = "需要立刻关注"
-        reason = "ModelScope 当前限流，已启用官方事故规则兜底；来源为官方状态/公告。"
+        reason = "该信息来自官方状态或公告，属于需要关注的服务异常。"
     else:
-        category = "账号风控 / 额度 / 接码 / 工具异常"
+        category = classify_local_category(item.get("title", ""), item.get("summary", ""))
         risk = "中"
         confidence = "中"
         action = "暂时观察"
-        reason = "ModelScope 当前限流，已启用高分强相关规则兜底；只做风险观察，下一轮会继续尝试 AI 总结。"
+        reason = "该信息来自公开社区反馈，属于高相关风险信号，建议结合后续同类反馈观察。"
 
     return {
         "should_push": True,
@@ -1738,7 +1756,7 @@ def build_rate_limit_fallback_judgement(item, judge_status):
         "action": action,
         "reason": reason,
         "no_hype_title": item.get("title", ""),
-        "hype_warning": "这是限流兜底摘要，未经过完整 AI 深度总结。",
+        "hype_warning": "",
     }
 
 
@@ -1844,6 +1862,71 @@ def is_mostly_english(text):
     return len(letters) >= 30 and len(letters) > len(cjk) * 2
 
 
+
+INTERNAL_STATUS_WORDS = [
+    "ModelScope", "限流", "429", "fallback", "规则兜底", "AI judge failed",
+    "下一轮恢复", "英文待解读", "原文为英文", "待中文解读", "完整中文解读会在"
+]
+
+QUESTION_WORDS = [
+    "怎么", "如何", "有没有", "求助", "请教", "能不能", "为什么", "怎么办", "咋", "吗", "？", "?",
+    "help", "how to", "why", "anyone", "does anyone", "what should", "how do i"
+]
+
+QUESTION_HIGH_VALUE_HINTS = [
+    "codex", "claude code", "copilot", "sub2api", "cpa", "401", "403", "oauth",
+    "token", "auth.json", "接码", "二验", "二次验证", "手机号", "额度", "限流", "pp", "paypal", "gopay"
+]
+
+
+def is_question_post(title, summary=""):
+    text = f"{title} {summary}".lower()
+    return any(word.lower() in text for word in QUESTION_WORDS)
+
+
+def is_high_value_question(title, summary=""):
+    text = f"{title} {summary}".lower()
+    return is_question_post(title, summary) and any(h.lower() in text for h in QUESTION_HIGH_VALUE_HINTS)
+
+
+def is_official_source_name(source_name):
+    source_name = source_name or ""
+    return any(marker in source_name for marker in ["Status", "OpenAI", "GitHub", "Copilot", "Claude Code Releases", "Gemini CLI Releases"])
+
+
+def source_is_linux(source_name):
+    source_name = (source_name or "").lower()
+    return source_name.startswith("linux") or "linux do" in source_name or "linux.do" in source_name
+
+
+def should_skip_when_ai_unavailable(title, summary, source, score_info):
+    """AI 不可用时，不推英文社区内容；官方事故和中文 L 站高价值内容允许干净兜底。"""
+    source_profile = score_info.get("source_profile", {}) if isinstance(score_info, dict) else {}
+    source_name = source_profile.get("name", source or "")
+
+    if is_official_emergency(score_info):
+        return False
+
+    if source_is_linux(source_name) and not is_mostly_english(f"{title} {summary}"):
+        return False
+
+    # Reddit / HN / 英文社区内容如果 AI 无法翻译总结，直接跳过，避免飞书出现英文和内部状态。
+    if is_mostly_english(f"{title} {summary}"):
+        return True
+
+    # 非官方、非 L 站中文高价值内容，AI 不可用时也尽量跳过。
+    return True
+
+
+def strip_internal_status_text(text):
+    text = text or ""
+    lines = []
+    for line in text.splitlines():
+        if any(word in line for word in INTERNAL_STATUS_WORDS):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
 def humanize_title_to_chinese(title, score_info=None):
     title = clean_html(title or "")
     if not title:
@@ -1851,15 +1934,14 @@ def humanize_title_to_chinese(title, score_info=None):
 
     lower = title.lower()
 
-    # 常见英文标题本地中文化；完整翻译仍优先交给 ModelScope。
     replacements = [
         ("claude status site", "Claude 状态页面使用反馈"),
         ("incident with actions and pages", "GitHub Actions 与 Pages 服务异常"),
         ("actions is experiencing degraded availability", "GitHub Actions 可用性下降"),
         ("elevated errors", "错误率升高"),
-        ("rate limit", "限流"),
-        ("billing", "计费"),
-        ("verification", "验证"),
+        ("rate limit", "限流异常"),
+        ("billing", "计费问题"),
+        ("verification", "验证问题"),
         ("text message", "短信验证"),
         ("suspended", "账号暂停"),
         ("banned", "账号封禁"),
@@ -1871,8 +1953,7 @@ def humanize_title_to_chinese(title, score_info=None):
             return value
 
     if is_mostly_english(title):
-        # 限流兜底时不要把英文当主标题，只保留原题做追溯。
-        return f"英文社区反馈待中文解读\n原题：{short_text(title, 120)}"
+        return f"英文社区反馈\n原题：{short_text(title, 120)}"
 
     return title
 
@@ -1880,9 +1961,9 @@ def humanize_title_to_chinese(title, score_info=None):
 def chinese_safe_summary(summary):
     summary = clean_html(summary or "")
     if not summary:
-        return "原文摘要为空，建议点开来源查看详情。"
+        return "来源摘要较短，建议点开原帖查看完整上下文。"
     if is_mostly_english(summary):
-        return "原文为英文。ModelScope 当前可能限流，已避免直接推送英文长段；下一轮恢复后会优先生成中文翻译和解读。"
+        return "该信息来自英文社区，当前只保留标题级风险信号；完整中文解读需要等待 AI 正常返回后再生成。"
     return short_text(summary, 460)
 
 
@@ -1902,15 +1983,23 @@ def filter_related_updates_for_card(title, summary, source, related_updates):
         if not u_title or u_title in seen_titles:
             continue
 
+        # 飞书同类补充不要出现内部状态或英文待解读类标题。
+        if any(word in u_title for word in INTERNAL_STATUS_WORDS):
+            continue
+
+        # fallback 卡片里不展示英文 Reddit/HN 补充，避免用户看不懂。
+        if is_mostly_english(u_title) and not (("Status" in source or "status" in source) and source == u_source):
+            continue
+
         u_theme = get_event_theme(u_title, "")
         u_parts = set(u_theme.split("+")) if u_theme != "general" else set()
         overlap = main_parts & u_parts
         title_sim = similarity(title, u_title)
 
         official_same_source = ("Status" in source or "status" in source) and source == u_source
-        strong_overlap = len(overlap) >= 2 or any(part in overlap for part in ["mfa", "phone_verification", "codex", "quota", "team"])
+        strong_overlap = len(overlap) >= 2 or any(part in overlap for part in ["mfa", "phone_verification", "codex", "quota", "team", "token_401"])
 
-        if official_same_source or title_sim >= 0.58 or strong_overlap:
+        if official_same_source or title_sim >= 0.64 or strong_overlap:
             result.append(update)
             seen_titles.add(u_title)
 
@@ -1918,6 +2007,7 @@ def filter_related_updates_for_card(title, summary, source, related_updates):
             break
 
     return result
+
 
 def fallback_message(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
     related_updates = filter_related_updates_for_card(title, summary, source, related_updates or [])
@@ -1970,7 +2060,7 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement, pub
     if level in ["爆炸", "高"] or category in ["账号风控 / 额度 / 接码 / 工具异常", "官方服务异常"]:
         today_advice = f"\n\n🧭 今日建议：\n- 先观察下一轮 RSS / 社区反馈；如果涉及账号、接码、401、额度或中转，暂时不要高频折腾。\n- 来源：{source}\n- 发布时间：{published_time}"
 
-    return f"""{prefix} {short_text(title_text, 100)}
+    message = f"""{prefix} {short_text(title_text, 100)}
 
 {level_icon(level)} 兴趣等级：{level}
 🔥 评分：{score}/100
@@ -1992,11 +2082,13 @@ def fallback_message(title, summary, source, link, score_info, ai_judgement, pub
 - {reason}{today_advice}{related_text}
 
 可信度：{confidence}
-理由：来自公开来源；如果这是限流兜底消息，完整中文解读会在 ModelScope 恢复后重试。
+理由：来自公开来源，当前按来源可信度、主题相关性和同类反馈数量综合判断。
 
 来源：{source}
 发布时间：{published_time}
 链接：{link}"""
+
+    return strip_internal_status_text(message)
 
 def build_related_updates_text(related_updates):
     if not related_updates:
@@ -2061,6 +2153,9 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
 同类合并反馈：
 {related_text}
 
+是否提问帖：{is_question_post(title, summary)}
+是否高价值问题：{is_high_value_question(title, summary)}
+
 规则评分：
 兴趣等级：{level}
 评分：{score}/100
@@ -2101,6 +2196,8 @@ AI 预判：
 15. 如果有同类合并反馈，要在“💬 同类补充”中整理，不要当成多条重复消息。
 16. 如果帖子已删、只是求助、只是单人询问，要明确“信息不完整/仅单点反馈”，不要夸大。
 17. 如果标题或正文是英文，必须翻译成中文并解释，不要直接粘贴英文长段。
+18. 如果这是提问帖，必须增加“🧠 AI 综合回答”板块：结合原帖、同类合并反馈和公开来源，给出当前最可能的答案、可能原因和建议。证据不足时要明确写“当前只能按单点反馈判断”。
+19. “🧠 AI 综合回答”不能输出违规教程；涉及接码、绕风控、薅号、盗号、规避检测时，只做风险解释和安全建议。
 18. 标题必须让中文用户一眼看懂发生了什么；如果原题是英文，可以在标题下保留“原题：...”。
 19. 飞书正文不要显示“触发原因、来源权威、核心主题+18、规则命中”等程序调试日志。
 """
@@ -2132,6 +2229,9 @@ AI 预判：
 
 🧯 风险判断：
 - 保守判断，不夸大
+
+🧠 AI 综合回答：
+- 只有提问帖才写。结合当前原帖和同类反馈，直接回答“怎么回事 / 可能原因 / 建议怎么处理”。非提问帖不要写这个板块。
 
 💬 同类补充：
 - 有同类合并反馈时才写
@@ -2405,6 +2505,9 @@ def main():
     print("RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE:", RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE)
     print("RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND:", RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND)
     print("CHINESE_OUTPUT_ENFORCED:", True)
+    print("FEISHU_INTERNAL_STATUS_HIDDEN:", True)
+    print("QUESTION_POST_AI_ANSWER_ENABLED:", True)
+    print("ENGLISH_COMMUNITY_REQUIRES_AI:", True)
     print("STRICT_RELATED_FILTER_ENABLED:", True)
     print("MERGE_SIMILAR_EVENTS:", MERGE_SIMILAR_EVENTS)
     print("CAP_LINUX_SINGLE_PREFERRED:", CAP_LINUX_SINGLE_PREFERRED)
