@@ -49,29 +49,38 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+          pip install requests feedparser openai
 
       - name: Check secrets
         env:
-          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
-          MODELSCOPE_BASE_URL: ${{ secrets.MODELSCOPE_BASE_URL }}
-          MODELSCOPE_MODEL: ${{ secrets.MODELSCOPE_MODEL }}
+          AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
+          AGNES_BASE_URL: ${{ secrets.AGNES_BASE_URL }}
+          AGNES_MODEL: ${{ secrets.AGNES_MODEL }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: |
           python - <<'PY'
           import os
-          print("MODELSCOPE_API_KEY set:", bool(os.environ.get("MODELSCOPE_API_KEY")))
-          print("MODELSCOPE_BASE_URL set:", bool(os.environ.get("MODELSCOPE_BASE_URL")))
-          print("MODELSCOPE_MODEL set:", bool(os.environ.get("MODELSCOPE_MODEL")))
+
+          print("AGNES_API_KEY set:", bool(os.environ.get("AGNES_API_KEY")))
+          print("AGNES_BASE_URL set:", bool(os.environ.get("AGNES_BASE_URL")))
+          print("AGNES_MODEL set:", bool(os.environ.get("AGNES_MODEL")))
           print("FEISHU_WEBHOOK set:", bool(os.environ.get("FEISHU_WEBHOOK")))
           print("FEISHU_WEBHOOK length:", len(os.environ.get("FEISHU_WEBHOOK", "")))
+
+          print("MODELSCOPE_DISABLED: True")
+          print("OFFICIAL_DEEPSEEK_DISABLED: True")
           PY
 
       - name: Run bot
         env:
-          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
-          MODELSCOPE_BASE_URL: ${{ secrets.MODELSCOPE_BASE_URL }}
-          MODELSCOPE_MODEL: ${{ secrets.MODELSCOPE_MODEL }}
+          AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
+          AGNES_BASE_URL: ${{ secrets.AGNES_BASE_URL }}
+          AGNES_MODEL: ${{ secrets.AGNES_MODEL }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: python main.py
 
@@ -80,6 +89,7 @@ jobs:
         run: |
           git config user.name "ai-radar-bot"
           git config user.email "ai-radar-bot@users.noreply.github.com"
+
           git add seen.json || true
           git commit -m "Update seen cache" || echo "No changes to commit"
           git push || true
