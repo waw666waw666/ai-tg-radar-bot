@@ -17,8 +17,8 @@ import feedparser
 # AGNES_MODEL 推荐使用 Agnes 2.0 Flash；如果官方文档给的是模型 ID，请以文档模型 ID 为准。
 
 AGNES_API_KEY = os.environ.get("AGNES_API_KEY", "")
-AGNES_BASE_URL = os.environ.get("AGNES_BASE_URL", "https://api.agnes-ai.com/v1")
-AGNES_MODEL = os.environ.get("AGNES_MODEL", "Agnes 2.0 Flash")
+AGNES_BASE_URL = os.environ.get("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
+AGNES_MODEL = os.environ.get("AGNES_MODEL", "agnes-2.0-flash")
 
 FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK", "")
 
@@ -62,10 +62,10 @@ PREFERRED_ALLOW_JUDGE_SCORE = 56
 # 不固定 3 条或 5 条，由 should_stop_sending 动态控制。
 SOFT_SEND_LIMIT = 999
 HIGH_SCORE_SEND_BYPASS = 86
-HARD_SEND_LIMIT = 15
+HARD_SEND_LIMIT = 6
 
 # Agnes 负责深度判断，候选先规则筛选和合并，避免一次运行调用过多。
-MAX_JUDGE_COUNT = 50
+MAX_JUDGE_COUNT = 10
 
 # 重要：不要只抓 10 / 15 条，否则你看到的永远都是几分钟前。
 # RSS 本身不是全站数据库，但这里会尽量读取 RSS 当前返回的更多条目。
@@ -86,7 +86,7 @@ MODEL_BACKOFF_BASE_SECONDS = 30
 # 当 Agnes 429 时，只允许“强相关/高分/多条同类”的规则兜底推送，避免完全静默，也避免垃圾乱推。
 RATE_LIMIT_LOCAL_FALLBACK_ENABLED = True
 RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE = 80
-RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND = 4
+RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND = 3
 
 MERGE_SIMILAR_EVENTS = True
 MERGE_SIMILARITY_THRESHOLD = 0.76
@@ -1834,8 +1834,8 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
 链接：{link}
 摘要：{short_text(summary, 1800)}
 
-同类合并反馈：
-{json.dumps(related_updates, ensure_ascii=False)[:1800]}
+证据来源 / 同主题 RSS：
+{build_evidence_text_for_prompt({"evidence_updates": related_updates}) if isinstance(related_updates, list) else json.dumps(related_updates, ensure_ascii=False)[:1800]}
 """
 
     messages = [
@@ -2459,6 +2459,177 @@ def merge_related_candidates(candidates):
     return merged
 
 
+
+# =========================
+# 多 RSS 主题聚合：一条情报融合多条 RSS / 多个帖子
+# =========================
+MAX_CLUSTERS_TO_JUDGE = 10
+MAX_EVIDENCE_PER_CLUSTER = 6
+MIN_CLUSTER_PUSH_SCORE = 62
+
+
+def cluster_topic_from_text(title, summary, source=""):
+    text = f"{title} {summary} {source}".lower()
+
+    official_words = ["status", "incident", "outage", "degraded", "history.rss", "官方状态", "github status", "openai status", "anthropic status"]
+    if any(w in text for w in official_words):
+        return "official_incident"
+
+    if any(w in text for w in ["封号", "被封", "封禁", "禁用", "suspended", "banned", "disabled", "terminated", "recovering account", "账号恢复"]):
+        return "account_ban"
+
+    if any(w in text for w in ["二次验证", "二验", "三次验证", "手机号", "手机验证", "短信", "接码", "sms", "text message", "phone verification", "whatsapp", "hero sms"]):
+        return "phone_verification"
+
+    if any(w in text for w in ["pp", "paypal", "gopay", "无卡", "支付", "扣款", "订阅", "plus", "pro", "充值", "续费", "变回free", "手搓"]):
+        return "pp_payment"
+
+    if any(w in text for w in ["401", "403", "oauth", "access token", "refresh token", "auth.json", "session", "json登陆", "json 登录", "凭证"]):
+        return "token_oauth"
+
+    if any(w in text for w in ["sub2api", "cpa", "中转", "号池", "free号池", "分组", "new api", "one api", "api额度", "额度池"]):
+        return "cpa_sub2api"
+
+    if "codex" in text:
+        return "codex_issue"
+
+    if any(w in text for w in ["claude code", "claude cli", "cc ", "ccs", "opus", "sonnet", "max", "anthropic"]):
+        return "claude_code"
+
+    if any(w in text for w in ["copilot", "github copilot", "coding agent"]):
+        return "copilot_issue"
+
+    if any(w in text for w in ["agent", "agents.md", "mcp", "skill", "workflow", "工作流", "插件", "多agent", "多 agent", "自动化"]):
+        return "ai_tool_tip"
+
+    if any(w in text for w in ["公益", "共享", "免费", "低价", "福利", "渠道", "拼团", "车", "随便蹬", "薅"]):
+        return "channel_signal"
+
+    return "general"
+
+
+def cluster_topic_label(topic):
+    labels = {
+        "official_incident": "官方事故 / 服务状态",
+        "account_ban": "账号封禁 / 恢复账号",
+        "phone_verification": "手机号验证 / 接码 / 二验",
+        "pp_payment": "Plus / Pro / PP / 支付订阅",
+        "token_oauth": "OAuth / Token / JSON / 401",
+        "cpa_sub2api": "CPA / Sub2API / 中转 / 号池",
+        "codex_issue": "Codex 使用 / 额度 / 桌面端",
+        "claude_code": "Claude Code / Claude 订阅",
+        "copilot_issue": "GitHub Copilot / Coding Agent",
+        "ai_tool_tip": "AI 工具技巧 / 工作流",
+        "channel_signal": "渠道 / 福利 / 共享 / 低成本",
+        "general": "普通 AI 信息",
+    }
+    return labels.get(topic, topic)
+
+
+def is_strong_cluster_item(item):
+    score = int(item.get("score", 0))
+    topic = item.get("cluster_topic") or cluster_topic_from_text(item.get("title", ""), item.get("summary", ""), item.get("source", ""))
+    if topic in ["official_incident", "account_ban", "phone_verification", "pp_payment", "token_oauth", "cpa_sub2api", "codex_issue"]:
+        return score >= 62
+    if topic in ["claude_code", "copilot_issue", "channel_signal"]:
+        return score >= 68
+    if topic == "ai_tool_tip":
+        return score >= 76
+    return score >= 86
+
+
+def cluster_candidates_for_ai(candidates):
+    """把多个 RSS 候选合并为少量主题 cluster，避免一条 RSS 一条推。"""
+    clusters = {}
+
+    for item in candidates:
+        topic = cluster_topic_from_text(item.get("title", ""), item.get("summary", ""), item.get("source", ""))
+        item["cluster_topic"] = topic
+
+        # 普通 general 只保留极高分，避免杂乱
+        if topic == "general" and item.get("score", 0) < 86:
+            continue
+
+        clusters.setdefault(topic, []).append(item)
+
+    cluster_items = []
+
+    for topic, items in clusters.items():
+        items.sort(key=lambda x: x.get("score", 0), reverse=True)
+        main = dict(items[0])
+        main["cluster_topic"] = topic
+        main["cluster_label"] = cluster_topic_label(topic)
+
+        evidence = []
+        seen_links = set()
+
+        for item in items:
+            link = item.get("link", "")
+            if link in seen_links:
+                continue
+            seen_links.add(link)
+            evidence.append({
+                "title": item.get("title", ""),
+                "source": item.get("source", ""),
+                "link": item.get("link", ""),
+                "published_time": item.get("published_time", "未知"),
+                "score": item.get("score", 0),
+                "topic": topic,
+            })
+
+        # 合并原先 related_updates，但严格限制数量和相关性
+        for item in items:
+            for rel in item.get("related_updates", []) or []:
+                link = rel.get("link", "")
+                if link and link in seen_links:
+                    continue
+                rel_topic = cluster_topic_from_text(rel.get("title", ""), "", rel.get("source", ""))
+                if rel_topic != topic:
+                    continue
+                seen_links.add(link)
+                evidence.append({
+                    "title": rel.get("title", ""),
+                    "source": rel.get("source", ""),
+                    "link": rel.get("link", ""),
+                    "published_time": rel.get("published_time", "未知"),
+                    "score": rel.get("score", 0),
+                    "topic": topic,
+                })
+
+        evidence = evidence[:MAX_EVIDENCE_PER_CLUSTER]
+        main["related_updates"] = evidence[1:]
+        main["evidence_updates"] = evidence
+        main["cluster_size"] = len(evidence)
+
+        # 多条证据给聚合加分，但不超过 94，避免夸张
+        if len(evidence) >= 2:
+            bonus = min(8, (len(evidence) - 1) * 2)
+            main["score"] = min(94, int(main.get("score", 0)) + bonus)
+            try:
+                main["score_info"]["score"] = main["score"]
+                main["score_info"].setdefault("reasons", []).append(f"同主题多源证据 +{bonus}：{len(evidence)} 条")
+            except Exception:
+                pass
+
+        if main.get("score", 0) >= MIN_CLUSTER_PUSH_SCORE and is_strong_cluster_item(main):
+            cluster_items.append(main)
+
+    cluster_items.sort(key=lambda x: (x.get("priority", 3), -x.get("score", 0), -x.get("cluster_size", 1)))
+    return cluster_items[:MAX_CLUSTERS_TO_JUDGE]
+
+
+def build_evidence_text_for_prompt(item):
+    evidence = item.get("evidence_updates") or []
+    if not evidence:
+        return "无"
+
+    lines = []
+    for idx, ev in enumerate(evidence[:MAX_EVIDENCE_PER_CLUSTER], start=1):
+        lines.append(
+            f"{idx}. 时间：{ev.get('published_time', '未知')}｜来源：{ev.get('source', '')}｜标题：{short_text(ev.get('title', ''), 120)}｜链接：{ev.get('link', '')}"
+        )
+    return "\n".join(lines)
+
 def should_mark_seen_when_skipped(score_info, published_dt, title, summary):
     age_minutes = get_age_minutes(published_dt)
 
@@ -2641,9 +2812,12 @@ def main():
     original_candidate_count = len(candidates)
 
     candidates = merge_related_candidates(candidates)
+    merged_candidate_count = len(candidates)
+    candidates = cluster_candidates_for_ai(candidates)
 
     print(f"Candidates before merge: {original_candidate_count}")
-    print(f"Candidates after merge: {len(candidates)}")
+    print(f"Candidates after merge: {merged_candidate_count}")
+    print(f"Candidates after cluster: {len(candidates)}")
 
     sent_count = 0
     judged_count = 0
@@ -2801,7 +2975,7 @@ def main():
         )
 
     summary_text = f"""候选：{original_candidate_count}
-合并后候选：{len(candidates)}
+主题聚合后候选：{len(candidates)}
 AI 判断：{judged_count}
 规则跳过：{skipped_rule_count}
 时间跳过：{skipped_time_count}
