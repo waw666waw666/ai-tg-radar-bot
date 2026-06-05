@@ -12,12 +12,13 @@ import requests
 import feedparser
 
 
-# 注意：这里只使用魔搭 ModelScope 上的 DeepSeek 模型，不使用官网 DeepSeek API。
-# 不需要 DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL。
+# 注意：这里只使用 Agnes AI 的文本模型，不使用魔搭 ModelScope，也不使用官网 DeepSeek API。
+# 需要在 GitHub Secrets 中配置：AGNES_API_KEY / AGNES_BASE_URL / AGNES_MODEL。
+# AGNES_MODEL 推荐使用 Agnes 2.0 Flash；如果官方文档给的是模型 ID，请以文档模型 ID 为准。
 
-MODELSCOPE_API_KEY = os.environ.get("MODELSCOPE_API_KEY", "")
-MODELSCOPE_BASE_URL = os.environ.get("MODELSCOPE_BASE_URL", "https://api-inference.modelscope.cn/v1")
-MODELSCOPE_MODEL = os.environ.get("MODELSCOPE_MODEL", "")
+AGNES_API_KEY = os.environ.get("AGNES_API_KEY", "")
+AGNES_BASE_URL = os.environ.get("AGNES_BASE_URL", "https://api.agnes-ai.com/v1")
+AGNES_MODEL = os.environ.get("AGNES_MODEL", "Agnes 2.0 Flash")
 
 FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK", "")
 
@@ -63,7 +64,7 @@ SOFT_SEND_LIMIT = 999
 HIGH_SCORE_SEND_BYPASS = 86
 HARD_SEND_LIMIT = 15
 
-# 魔搭额度充足，允许更多候选进入深度判断。
+# Agnes 负责深度判断，候选先规则筛选和合并，避免一次运行调用过多。
 MAX_JUDGE_COUNT = 50
 
 # 重要：不要只抓 10 / 15 条，否则你看到的永远都是几分钟前。
@@ -73,16 +74,16 @@ MAX_ENTRIES_PER_FEED = 100
 SEND_EMPTY_HEARTBEAT = False
 
 # =========================
-# 模型调用策略：只使用魔搭 ModelScope 上的 DeepSeek，不调用官网 DeepSeek
+# 模型调用策略：只使用 Agnes AI，不调用魔搭 ModelScope / 官网 DeepSeek
 # =========================
-# 魔搭 API 可能有分钟级限流；宁可慢一点，也不要一轮里连续 429 后乱推。
+# Agnes API 可能有分钟级限流；宁可慢一点，也不要一轮里连续 429 后乱推。
 MODEL_REQUEST_INTERVAL_SECONDS = 25
-# 魔搭限流时不要一轮里反复硬撞；失败后用安全规则兜底，下一轮 cron 再重试。
+# Agnes 限流时不要一轮里反复硬撞；失败后用安全规则兜底，下一轮 cron 再重试。
 MODEL_MAX_RETRIES = 1
 MODEL_TIMEOUT_SECONDS = 120
 MODEL_BACKOFF_BASE_SECONDS = 30
 
-# 当 ModelScope 429 时，只允许“强相关/高分/多条同类”的规则兜底推送，避免完全静默，也避免垃圾乱推。
+# 当 Agnes 429 时，只允许“强相关/高分/多条同类”的规则兜底推送，避免完全静默，也避免垃圾乱推。
 RATE_LIMIT_LOCAL_FALLBACK_ENABLED = True
 RATE_LIMIT_LOCAL_FALLBACK_MIN_SCORE = 80
 RATE_LIMIT_LOCAL_FALLBACK_MAX_SEND = 4
@@ -1470,14 +1471,13 @@ def call_openai_compatible_chat(provider_name, api_key, base_url, model, message
 
 
 def call_llm_json(messages, max_tokens=1200):
-    # 只使用魔搭 ModelScope。这里的模型可以是魔搭上的 deepseek-ai/DeepSeek-V4-Flash，
-    # 但不会调用官网 DeepSeek API。
+    # 只使用 Agnes AI，不调用魔搭 ModelScope / 官网 DeepSeek。
     providers = [
         {
-            "name": "ModelScope",
-            "api_key": MODELSCOPE_API_KEY,
-            "base_url": MODELSCOPE_BASE_URL,
-            "model": MODELSCOPE_MODEL,
+            "name": "Agnes",
+            "api_key": AGNES_API_KEY,
+            "base_url": AGNES_BASE_URL,
+            "model": AGNES_MODEL,
             "response_format": {"type": "json_object"},
         },
     ]
@@ -1514,10 +1514,10 @@ def call_llm_json(messages, max_tokens=1200):
 def call_llm_text(messages, max_tokens=1800):
     providers = [
         {
-            "name": "ModelScope",
-            "api_key": MODELSCOPE_API_KEY,
-            "base_url": MODELSCOPE_BASE_URL,
-            "model": MODELSCOPE_MODEL,
+            "name": "Agnes",
+            "api_key": AGNES_API_KEY,
+            "base_url": AGNES_BASE_URL,
+            "model": AGNES_MODEL,
         },
     ]
 
@@ -1669,7 +1669,7 @@ def failed_ai_judgement(reason="AI 判断失败，跳过推送"):
 
 
 def should_rule_fallback_push(item, judge_status):
-    """ModelScope 不可用时的安全兜底：只推官方事故或中文 L 站强相关内容。"""
+    """Agnes 不可用时的安全兜底：只推官方事故或中文 L 站强相关内容。"""
     if not RATE_LIMIT_LOCAL_FALLBACK_ENABLED:
         return False
 
@@ -1761,8 +1761,8 @@ def build_rate_limit_fallback_judgement(item, judge_status):
 
 
 def ai_judge_news(title, summary, source, link, score_info, related_updates=None):
-    if not MODELSCOPE_API_KEY:
-        return failed_ai_judgement("MODELSCOPE_API_KEY 未配置，跳过推送"), "no_api_key"
+    if not AGNES_API_KEY:
+        return failed_ai_judgement("AGNES_API_KEY 未配置，跳过推送"), "no_api_key"
 
     source_profile = score_info["source_profile"]
     related_updates = related_updates or []
@@ -1847,7 +1847,7 @@ def ai_judge_news(title, summary, source, link, score_info, related_updates=None
 
     if not judgement:
         print("AI judge failed: all providers failed")
-        return failed_ai_judgement("ModelScope 判断失败或限流，跳过推送，等待下一轮重试"), provider_status
+        return failed_ai_judgement("Agnes 判断失败或限流，跳过推送，等待下一轮重试"), provider_status
 
     print(f"AI judge provider used: {provider_name}")
 
@@ -1864,7 +1864,7 @@ def is_mostly_english(text):
 
 
 INTERNAL_STATUS_WORDS = [
-    "ModelScope", "限流", "429", "fallback", "规则兜底", "AI judge failed",
+    "ModelScope", "Agnes", "限流", "429", "fallback", "规则兜底", "AI judge failed",
     "下一轮恢复", "英文待解读", "原文为英文", "待中文解读", "完整中文解读会在"
 ]
 
@@ -2136,8 +2136,8 @@ def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, p
 
     display_title = humanize_title_to_chinese(no_hype_title or title, score_info)
 
-    if not MODELSCOPE_API_KEY:
-        print("No LLM API key set, use fallback message.")
+    if not AGNES_API_KEY:
+        print("No Agnes API key set, use fallback message.")
         return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time, related_updates)
 
     related_text = build_related_updates_text(related_updates)
@@ -2481,9 +2481,10 @@ def should_mark_seen_when_skipped(score_info, published_dt, title, summary):
 
 
 def main():
-    print("MODELSCOPE_API_KEY set:", bool(MODELSCOPE_API_KEY))
-    print("MODELSCOPE_BASE_URL:", MODELSCOPE_BASE_URL)
-    print("MODELSCOPE_MODEL:", MODELSCOPE_MODEL)
+    print("AGNES_API_KEY set:", bool(AGNES_API_KEY))
+    print("AGNES_BASE_URL:", AGNES_BASE_URL)
+    print("AGNES_MODEL:", AGNES_MODEL)
+    print("MODELSCOPE_DISABLED:", True)
     print("OFFICIAL_DEEPSEEK_DISABLED:", True)
     print("FEISHU_WEBHOOK set:", bool(FEISHU_WEBHOOK))
     print("FEISHU_WEBHOOK length:", len(FEISHU_WEBHOOK))
@@ -2723,7 +2724,7 @@ def main():
                             new_seen.add(item_id(related.get("title", ""), related.get("link", "")))
                     sent_count += 1
                     rate_limit_fallback_sent += 1
-                    print(f"Rule fallback pushed due to ModelScope failure: {short_text(item['title'], 80)}")
+                    print(f"Rule fallback pushed due to Agnes failure: {short_text(item['title'], 80)}")
 
                 # 不再继续调用模型，但继续看后面是否还有可规则兜底的高价值候选。
                 continue
@@ -2732,7 +2733,7 @@ def main():
                 print("Stop this run: rate-limit fallback max reached. Will retry next cron run.")
                 break
 
-            print("Skip this item because ModelScope failed/rate-limited. Continue checking next candidate for safe rule fallback.")
+            print("Skip this item because Agnes failed/rate-limited. Continue checking next candidate for safe rule fallback.")
             continue
 
         if not ai_judgement.get("should_push", False):
@@ -2774,7 +2775,7 @@ def main():
                     related_updates,
                 )
             else:
-                print("Stop this run because ModelScope summary failed. Will retry next cron run.")
+                print("Stop this run because Agnes summary failed. Will retry next cron run.")
                 break
 
         success = send_feishu(message)
