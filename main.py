@@ -110,68 +110,26 @@ CAP_REDDIT_SINGLE = 82
 
 
 # =========================
-# 用户强偏好：PP / 接码 / 二验 / Free / 401 / 账号风控
-# 只做风险观察，不输出教程
+# 用户强偏好：仅保留“免费获取 Plus/Pro/Team”相关，其余全部删除
 # =========================
 PREFERRED_RISK_KEYWORDS = [
-    # PP / PayPal / 无卡
-    "pp", "PP", "PayPal", "paypal", "无卡", "pp无卡", "PP无卡",
-    "PP渠道", "pp渠道", "pp又复活", "PP又复活", "复活", "拉闸", "疑似拉闸",
-    "变回free", "变回 Free", "注册成功瞬间变回free", "Plus变Free", "plus变free",
-
-    # Free / Plus / Pro / Team / 账号风险
-    "free", "Free", "Plus", "plus", "Pro", "pro", "Team", "team",
-    "账号", "账号池", "共享号", "号池", "封号", "被封", "锁号", "禁用",
-    "风控", "风控收紧", "异常支付", "支付异常", "订阅异常", "会员异常",
-
-    # 接码 / 手机号 / 二验
-    "手搓接码", "接码", "接码平台", "接码渠道", "手机接码",
-    "手机号随机", "随机手机号", "二次验证", "二验", "三次验证", "强制二验",
-    "重新验证", "gpt登录二次验证", "GPT登录二次验证", "登录二次验证",
-    "所有邮箱都要接码", "邮箱都要接码", "邮箱注册", "注册入口",
-    "手机号验证", "手机验证", "短信验证", "text message", "SMS", "sms", "phone verification",
-
-    # 接码平台 / 国家
-    "hero sms", "Hero SMS", "HeroSMS", "WhatsApp", "whatsapp",
-    "巴西", "智利", "印尼", "印度尼西亚", "美国号码", "同一号码",
-    "绑 3 次", "绑定 3 次", "成功率", "很快", "耗尽", "库存", "号码被消耗",
-
-    # Token / OAuth / 401
-    "401", "403", "429", "AT", "RT", "session", "auth.json", "OAuth", "oauth",
-    "access token", "refresh token", "accessToken", "refresh_token", "unauthorized", "forbidden",
-
-    # Codex / CPA / Sub2API
-    "Codex", "codex", "CPA", "cpa", "Sub2API", "sub2api", "Cockpit", "cockpit",
-    "Codex Manager", "9router", "AxonHub",
-
-    # 额度 / 限流 / 订阅
-    "额度", "限额", "5h", "周限额", "weekly limit", "quota", "rate limit",
-    "billing", "refund", "out of credits", "workspace out of credits",
+    # ---- 只关心免费获取 Plus/Pro/Team 的信号 ----
+    "免费", "Free", "free",
+    "Plus", "plus", "Pro", "pro", "Team", "team",
 ]
 
-PREFERRED_RISK_COMBO_HINTS = [
-    ["pp", "free"], ["pp", "拉闸"], ["pp", "401"], ["pp", "无卡"], ["pp", "复活"],
-    ["paypal", "plus"], ["plus", "free"], ["注册", "free"], ["注册成功", "free"],
-
-    ["gpt", "二次验证"], ["gpt", "接码"], ["chatgpt", "接码"], ["chatgpt", "手机号"],
-    ["邮箱", "接码"], ["注册", "接码"], ["手机号", "随机"], ["手搓接码", "巴西"],
-
-    ["hero sms", "号码"], ["hero sms", "二次验证"], ["hero sms", "印尼"], ["whatsapp", "验证码"],
-
-    ["codex", "text message"], ["codex", "接码"], ["codex", "短信"], ["codex", "二次验证"],
-    ["codex", "额度"], ["codex", "free"], ["codex", "limit"],
-
-    ["team", "二次验证"], ["team", "接码"], ["team", "401"],
-
-    ["401", "team"], ["401", "ak"], ["401", "cpa"], ["401", "sub2api"],
-    ["oauth", "失效"], ["access token", "失效"], ["refresh token", "失效"],
-
-    ["cpa", "sub2api"], ["cpa", "冲突"], ["sub2api", "free"],
-    ["账号池", "401"], ["共享号", "封号"],
-]
+# 组合命中全部清空，不再使用
+PREFERRED_RISK_COMBO_HINTS = []
 
 
 RSS_SOURCES = [
+    # =========================
+    # AIHOT 聚合源（按您要求添加）
+    # =========================
+    "https://aihot.virxact.com/feed.xml",        # 精选
+    "https://aihot.virxact.com/feed/all.xml",    # 全部 AI 动态
+    "https://aihot.virxact.com/feed/daily.xml",  # 日报
+
     # =========================
     # 官方状态 / 官方发布：紧急消息优先
     # =========================
@@ -220,12 +178,6 @@ RSS_SOURCES = [
     "https://hnrss.org/newest?q=OAuth",
     "https://hnrss.org/newest?q=rate%20limit",
     "https://hnrss.org/newest?q=API%20billing",
-
-    # =========================
-    # 聚合源
-    # =========================
-    "https://aihot.virxact.com/feed.xml",
-    "https://aihot.virxact.com/feed/daily.xml",
 
     # =========================
     # 泛 AI 源：保留，但权重低
@@ -280,149 +232,38 @@ BLOCK_KEYWORDS = [
 ]
 
 
+# =========================
+# 精简 CRITICAL_EVENT_KEYWORDS：删除所有中文风控词，保留通用服务异常词
+# =========================
 CRITICAL_EVENT_KEYWORDS = [
-    "大规模封号",
-    "批量封号",
-    "大规模封禁",
-    "全线失效",
-    "全部失效",
-    "大面积异常",
-    "无法登录",
-    "登录失败",
-    "OAuth 失效",
-    "refresh token 失效",
-    "access token 失效",
-    "refresh_token 失效",
-    "access_token 失效",
-    "401 unauthorized",
-    "403 forbidden",
     "outage",
     "degraded",
     "incident",
     "stream disconnected",
-    "weekly limit",
-    "quota drained",
-    "学生包取消",
-    "Plus 下线",
-    "Pro 限制",
-    "短信验证",
-    "接码失败",
-    "手搓接码",
-    "接码渠道",
-    "接码平台",
-    "pp又复活",
-    "PP又复活",
-    "PP渠道",
-    "pp渠道",
-    "pp无卡",
-    "PP无卡",
-    "无卡",
-    "拉闸",
-    "疑似拉闸",
-    "变回free",
-    "注册成功瞬间变回free",
-    "所有邮箱都要接码",
-    "邮箱都要接码",
-    "二次验证",
-    "二验",
-    "三次验证",
-    "重新验证",
-    "需要验证",
-    "强制验证",
-    "强验",
-    "手机号验证",
-    "手机验证",
-    "接码二验",
-    "接码验证",
-    "Codex 接码",
-    "codex接码",
-    "text message verification",
     "rate limit incident",
     "Codex outage",
     "OpenAI outage",
     "Claude Code billing",
-    "账户终止",
     "account terminated",
     "account suspended",
     "account disabled",
     "account banned",
     "banned",
     "suspended",
-    "封禁",
-    "禁用",
-    "锁号",
 ]
 
 
+# =========================
+# 精简 CORE_TOPIC_KEYWORDS：删除封号/接码/风控/额度/401/OAuth，保留 AI 产品/模型/技术
+# =========================
 CORE_TOPIC_KEYWORDS = [
+    # AI 产品
     "Codex",
     "Plus",
     "Pro",
     "Team",
     "Enterprise",
     "Free",
-    "封号",
-    "被封",
-    "冻结",
-    "禁用",
-    "风控",
-    "下线",
-    "失效",
-    "风控收紧",
-    "接码",
-    "短信",
-    "手机号",
-    "验证码",
-    "短信验证",
-    "接码失败",
-    "手搓接码",
-    "接码渠道",
-    "接码平台",
-    "pp",
-    "PP",
-    "PayPal",
-    "paypal",
-    "无卡",
-    "pp无卡",
-    "PP无卡",
-    "PP渠道",
-    "pp渠道",
-    "pp又复活",
-    "PP又复活",
-    "复活",
-    "拉闸",
-    "疑似拉闸",
-    "变回free",
-    "Free",
-    "free",
-    "邮箱接码",
-    "所有邮箱都要接码",
-    "手机号随机",
-    "随机手机号",
-    "巴西",
-    "智利",
-    "印尼",
-    "印度尼西亚",
-    "hero sms",
-    "Hero SMS",
-    "WhatsApp",
-    "text message",
-    "verification",
-    "OAuth",
-    "accessToken",
-    "access token",
-    "refresh_token",
-    "refresh token",
-    "401",
-    "403",
-    "rate limit",
-    "quota",
-    "限流",
-    "额度",
-    "5h额度",
-    "weekly limit",
-    "学生包",
-    "GitHub Student",
     "GitHub Copilot",
     "Copilot",
     "Copilot Chat",
@@ -430,23 +271,39 @@ CORE_TOPIC_KEYWORDS = [
     "Claude Code",
     "Claude Pro",
     "Claude API",
-    "Tier3",
-    "Tier 3",
-    "HERMES.md",
     "Gemini CLI",
-    "billing",
-    "refund",
-    "账号",
-    "账号池",
-    "共享号",
+    "HERMES.md",
     "Sub2API",
     "CPA",
     "Cockpit",
     "Codex Manager",
     "9router",
     "AxonHub",
-    "passkey",
     "MFA",
+    "passkey",
+    # AI 模型/公司
+    "OpenAI",
+    "ChatGPT",
+    "Claude",
+    "Anthropic",
+    "Gemini",
+    "Antigravity",
+    "xAI",
+    "DeepSeek",
+    "Qwen",
+    "Llama",
+    # 技术词
+    "agent",
+    "MCP",
+    "API",
+    "model",
+    "算力",
+    "订阅",
+    "价格",
+    "额度提升",
+    "GPU",
+    "Cursor",
+    "Windsurf",
 ]
 
 
@@ -780,6 +637,9 @@ def get_source_profile(source, rss_url):
 
     if "aihot.virxact.com/feed.xml" in text:
         return {"name": "AIHOT 精选", "authority": 16, "type": "C类 / 中文精选聚合"}
+
+    if "aihot.virxact.com/feed/all.xml" in text:
+        return {"name": "AIHOT 全部动态", "authority": 15, "type": "C类 / 中文全部聚合"}
 
     if "aihot.virxact.com/feed/daily.xml" in text:
         return {"name": "AIHOT 日报", "authority": 14, "type": "C类 / 中文日报聚合"}
@@ -1183,6 +1043,9 @@ def score_news(title, summary, source, rss_url, published_dt=None):
     if "aihot.virxact.com/feed.xml" in rss_url:
         source_freshness_score += 2
         reasons.append("AIHOT 精选 +2")
+    elif "aihot.virxact.com/feed/all.xml" in rss_url:
+        source_freshness_score += 2
+        reasons.append("AIHOT 全部动态 +2")
     elif "aihot.virxact.com/feed/daily.xml" in rss_url:
         source_freshness_score += 1
         reasons.append("AIHOT 日报 +1")
@@ -2011,84 +1874,116 @@ def filter_related_updates_for_card(title, summary, source, related_updates):
 
 def fallback_message(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
     related_updates = filter_related_updates_for_card(title, summary, source, related_updates or [])
+    
+    level = score_info["level"]
+    score = score_info["score"]
+    action = ai_judgement.get("action", "暂时观察")
+    category = ai_judgement.get("category", "未知")
+    
+    # 生成简洁的兜底文本（不带模板标签）
+    body = f"{title}\n\n"
+    body += f"摘要：{chinese_safe_summary(summary)}\n\n"
+    
+    if related_updates:
+        body += "同类反馈：\n"
+        for u in related_updates[:2]:
+            body += f"- {u.get('published_time', '未知')} {u.get('title', '')}\n"
+        body += "\n"
+    
+    body += f"判断：{action}（{category}）\n"
+    body += f"可信度：{ai_judgement.get('confidence', '中')}\n"
+    body += f"来源：{source}\n发布时间：{published_time}\n链接：{link}"
+    
+    return body
+
+
+def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
+    related_updates = filter_related_updates_for_card(title, summary, source, related_updates or [])
 
     level = score_info["level"]
     score = score_info["score"]
     rating = score_info["rating"]
-    source_profile = score_info["source_profile"]
 
     action = ai_judgement.get("action") or score_info["action"]
     risk = ai_judgement.get("risk", "中")
     confidence = ai_judgement.get("confidence", "中")
     scope = ai_judgement.get("scope", "未确认")
     category = ai_judgement.get("category", "其他")
-    reason = ai_judgement.get("reason", "公开来源自动抓取")
-    title_text = ai_judgement.get("no_hype_title") or title
-    title_text = humanize_title_to_chinese(title_text, score_info)
+    no_hype_title = ai_judgement.get("no_hype_title", "")
 
-    if level == "爆炸":
-        prefix = "🚨"
-    elif level == "高":
-        prefix = "📌"
-    else:
-        prefix = "🟡"
+    display_title = humanize_title_to_chinese(no_hype_title or title, score_info)
 
-    safe_summary = chinese_safe_summary(summary)
+    if not AGNES_API_KEY:
+        print("No Agnes API key set, use fallback message.")
+        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time, related_updates)
 
-    related_text = ""
-    if related_updates:
-        lines = []
-        for update in related_updates[:MAX_RELATED_UPDATES_IN_CARD]:
-            u_title = humanize_title_to_chinese(update.get("title", ""))
-            lines.append(f"- {update.get('published_time', '未知')}：{short_text(u_title, 90)}")
-        related_text = "\n\n💬 同类补充：\n" + "\n".join(lines)
+    related_text = build_related_updates_text(related_updates)
 
-    impact_lines = []
-    theme = get_event_theme(title, summary)
-    if "codex" in theme:
-        impact_lines.append("- 可能影响 Codex 使用、额度判断或相关自动化工作流。")
-    if "mfa" in theme or "phone_verification" in theme:
-        impact_lines.append("- 可能影响登录验证、手机号验证、接码成功率或账号稳定性。")
-    if "token_401" in theme:
-        impact_lines.append("- 可能影响 OAuth / token / 401 相关调用稳定性。")
-    if "quota" in theme:
-        impact_lines.append("- 可能影响额度、限流、计费或中转可用性。")
-    if not impact_lines:
-        impact_lines.append("- 当前只作为公开来源风险观察，是否影响你需要结合后续反馈确认。")
+    # 只传原始信息，不传评分明细，避免 AI 被规则词带偏
+    raw_content = short_text(
+        f"""
+标题：{title}
+来源：{source}
+发布时间：{published_time}
+摘要：{summary}
+链接：{link}
 
-    today_advice = ""
-    if level in ["爆炸", "高"] or category in ["账号风控 / 额度 / 接码 / 工具异常", "官方服务异常"]:
-        today_advice = f"\n\n🧭 今日建议：\n- 先观察下一轮 RSS / 社区反馈；如果涉及账号、接码、401、额度或中转，暂时不要高频折腾。\n- 来源：{source}\n- 发布时间：{published_time}"
+同类合并反馈：
+{related_text}
+""",
+        7600
+    )
 
-    message = f"""{prefix} {short_text(title_text, 100)}
+    system_prompt = """你是一个专业的情报编辑。任务是把 AI 相关的公开资讯改写成一段简短、清晰、有洞察力的中文情报短文（200-300字）。
+
+写作铁律：
+1. **不用模板**：不要使用 "📝 变化"、"💰 成本" 等标签，直接用自然段落叙述。
+2. **客观真实**：只基于提供的内容总结，不编造、不夸大。如果是单点反馈或未经验证的消息，必须说明。
+3. **通俗易懂**：把技术术语（如 OAuth、401、额度）说清楚，但不要写代码或教程。
+4. **聚焦影响**：重点说清楚"发生了什么事"、"对谁有影响"、"风险有多大"。
+5. **英文处理**：英文标题/摘要需翻译为中文，但可保留关键产品名（如 Codex、Copilot）。
+6. **去除废话**：不要写"根据原文"、"综上所述"等口水话，直接切入主题。"""
+
+    user_prompt = f"""请根据以下信息写一段飞书情报正文（不要包含标题、链接和评分，这些由程序自动添加）：
+
+素材如下：
+{raw_content}
+
+写作指引：
+- 第一句：用一句话点出核心事件（谁出了什么问题）。
+- 中间：具体描述情况，如果涉及多个同类反馈，合并说明。
+- 结尾：给出保守的风险判断，并指出信息可信度（是官方确认还是社区传闻）。
+
+注意：正文中不要出现"兴趣等级"、"评分"、"评级"等字眼。直接输出正文。"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    body, provider_name, provider_status = call_llm_text(messages, max_tokens=1800)
+
+    if not body:
+        print("Summary failed: all providers failed")
+        return ""
+
+    body = remove_duplicate_interest_lines(body)
+
+    # 头部保留程序原有的统一格式（评分、等级等）
+    header = f"""📌 {short_text(display_title, 60)}
 
 {level_icon(level)} 兴趣等级：{level}
 🔥 评分：{score}/100
 🏷 评级：{rating}
-📌 建议：{action}
+📌 建议：{action}"""
 
-📝 变化：
-- {safe_summary}
-
-🔎 关键信息：
-- 类型：{category}
-- 范围：{scope}
-- 来源类型：{source_profile["type"]}
-
-🎯 可能影响：
-{chr(10).join(impact_lines)}
-
-🧯 风险判断：{risk}
-- {reason}{today_advice}{related_text}
-
-可信度：{confidence}
-理由：来自公开来源，当前按来源可信度、主题相关性和同类反馈数量综合判断。
-
-来源：{source}
+    footer = f"""来源：{source}
 发布时间：{published_time}
 链接：{link}"""
 
-    return strip_internal_status_text(message)
+    content = f"{header}\n\n{body}\n\n{footer}"
+    return content[:3800]
+
 
 def build_related_updates_text(related_updates):
     if not related_updates:
@@ -2118,165 +2013,6 @@ def remove_duplicate_interest_lines(text):
         result.append(line)
 
     return "\n".join(result).strip()
-
-
-def deepseek_summarize(title, summary, source, link, score_info, ai_judgement, published_time="未知", related_updates=None):
-    related_updates = filter_related_updates_for_card(title, summary, source, related_updates or [])
-
-    level = score_info["level"]
-    score = score_info["score"]
-    rating = score_info["rating"]
-
-    action = ai_judgement.get("action") or score_info["action"]
-    risk = ai_judgement.get("risk", "中")
-    confidence = ai_judgement.get("confidence", "中")
-    scope = ai_judgement.get("scope", "未确认")
-    category = ai_judgement.get("category", "其他")
-    no_hype_title = ai_judgement.get("no_hype_title", "")
-
-    display_title = humanize_title_to_chinese(no_hype_title or title, score_info)
-
-    if not AGNES_API_KEY:
-        print("No Agnes API key set, use fallback message.")
-        return fallback_message(title, summary, source, link, score_info, ai_judgement, published_time, related_updates)
-
-    related_text = build_related_updates_text(related_updates)
-
-    raw_content = short_text(
-        f"""
-标题：{title}
-来源：{source}
-发布时间：{published_time}
-摘要：{summary}
-链接：{link}
-
-同类合并反馈：
-{related_text}
-
-是否提问帖：{is_question_post(title, summary)}
-是否高价值问题：{is_high_value_question(title, summary)}
-
-规则评分：
-兴趣等级：{level}
-评分：{score}/100
-评级：{rating}
-来源信息：{score_info.get("source_profile")}
-触发原因：{score_info.get("reasons")}
-严重事件命中：{score_info.get("critical_hits")}
-核心主题命中：{score_info.get("core_hits")}
-普通主题命中：{score_info.get("medium_hits")}
-单点反馈命中：{score_info.get("single_hits")}
-多人反馈命中：{score_info.get("multi_hits")}
-偏好命中：{score_info.get("preferred_hits")}
-
-AI 预判：
-{json.dumps(ai_judgement, ensure_ascii=False)}
-""",
-        7600
-    )
-
-    system_prompt = """你是一个飞书 AI 情报频道的中文编辑。
-你的任务是把公开 RSS、社区帖子、新闻源内容，总结成短、准、清晰的中文情报卡片。
-
-硬性规则：
-1. 只能根据输入内容总结，不要编造。
-2. 必须遵守 AI 预判里的 category / scope / risk / confidence / action。
-3. 如果 AI 预判 scope 是“单点反馈”或“未确认”，禁止写“大规模、批量、全线、已确认、普遍”。
-4. 如果原文没有官方确认，不要写“官方确认”。
-5. 涉及封号、接码、账号、风控、额度、OAuth、access token、refresh token、401、共享号、Plus/Pro、PP、无卡，只做风险分析，不提供薅号、绕风控、盗号、规避检测教程。
-6. 不要输出 Markdown 表格。
-7. 不要输出代码块。
-8. 不要写“根据原文”“根据你提供的信息”这种废话。
-9. 标题要短、准，不标题党。
-10. 输出适合飞书手机端阅读，不要太长。
-11. 宁可保守，不要夸大。
-12. 用户喜欢“图文情报卡”的风格：变化、成本/渠道、注意、关键信息、风险判断、评论补充、来源、发布时间、链接。
-13. 如果原文里没有成本/渠道/评论补充，就不要编造；可以省略对应小节。
-14. 不要输出“兴趣等级、评分、评级、建议”，这些由程序统一添加，避免重复。
-15. 如果有同类合并反馈，要在“💬 同类补充”中整理，不要当成多条重复消息。
-16. 如果帖子已删、只是求助、只是单人询问，要明确“信息不完整/仅单点反馈”，不要夸大。
-17. 如果标题或正文是英文，必须翻译成中文并解释，不要直接粘贴英文长段。
-18. 如果这是提问帖，必须增加“🧠 AI 综合回答”板块：结合原帖、同类合并反馈和公开来源，给出当前最可能的答案、可能原因和建议。证据不足时要明确写“当前只能按单点反馈判断”。
-19. “🧠 AI 综合回答”不能输出违规教程；涉及接码、绕风控、薅号、盗号、规避检测时，只做风险解释和安全建议。
-18. 标题必须让中文用户一眼看懂发生了什么；如果原题是英文，可以在标题下保留“原题：...”。
-19. 飞书正文不要显示“触发原因、来源权威、核心主题+18、规则命中”等程序调试日志。
-"""
-
-    user_prompt = f"""请生成飞书情报卡片正文。
-
-程序会自动添加这个统一头部，你不要重复输出：
-📌 {short_text(display_title, 60)}
-{level_icon(level)} 兴趣等级：{level}
-🔥 评分：{score}/100
-🏷 评级：{rating}
-📌 建议：{action}
-
-你只输出以下正文部分，可按需要省略没有依据的小节：
-
-📝 变化：
-- 用中文写清楚发生了什么；英文原文必须翻译，不要直接粘贴英文长段
-
-💰 成本/渠道：
-- 只有原文出现价格、渠道、国家、hero sms、WhatsApp、巴西/智利/印尼等信息才写
-
-⚠️ 注意：
-- 写不确定性、并非所有人都有、单点反馈、帖子已删、信息不完整等限制
-
-🔎 关键信息：
-- 类型：{category}
-- 范围：{scope}
-- 影响：一句话说明影响
-
-🧯 风险判断：
-- 保守判断，不夸大
-
-🧠 AI 综合回答：
-- 只有提问帖才写。结合当前原帖和同类反馈，直接回答“怎么回事 / 可能原因 / 建议怎么处理”。非提问帖不要写这个板块。
-
-💬 同类补充：
-- 有同类合并反馈时才写
-
-可信度：{confidence}
-理由：一句话
-
-不要输出来源、发布时间、链接，程序会统一添加到底部。
-
-要求：
-- 不要输出教程
-- 不要教人怎么买接码、怎么绕验证、怎么保号
-- 不要把单点反馈写成全网事件
-- 如果是 PP / 接码 / 二验 / free / 邮箱注册收紧相关内容，要优先整理成风险观察卡片
-
-原始内容：
-{raw_content}
-"""
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-
-    body, provider_name, provider_status = call_llm_text(messages, max_tokens=1800)
-
-    if not body:
-        print("Summary failed: all providers failed")
-        return ""
-
-    body = remove_duplicate_interest_lines(body)
-
-    header = f"""📌 {short_text(display_title, 60)}
-
-{level_icon(level)} 兴趣等级：{level}
-🔥 评分：{score}/100
-🏷 评级：{rating}
-📌 建议：{action}"""
-
-    footer = f"""来源：{source}
-发布时间：{published_time}
-链接：{link}"""
-
-    content = f"{header}\n\n{body}\n\n{footer}"
-    return content[:3800]
 
 
 def send_feishu(message):
