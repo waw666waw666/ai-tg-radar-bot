@@ -39,6 +39,15 @@ python main.py
 1.  在 GitHub 仓库中，进入 `Settings -> Secrets -> Actions` 配置上述环境变量。
 2.  推荐使用外部 Cron 服务（如 `cron-job.org`）向 GitHub Actions 的 `workflow_dispatch` 接口发送 POST 请求，实现自定义频率的定时触发。
 
+## 使用与自定义指南
+
+1. **自动运行**：项目配置好 GitHub Actions 与 Webhook 后，会根据触发频率自动运行。无新情报时保持静默，有高分情报时自动向飞书推送卡片。
+2. **自定义订阅源**：
+   - 打开 `main.py` 文件，定位到 `RSS_SOURCES` 列表。
+   - 按照现有的 RSS/Atom URL 格式，直接在数组中添加或移除订阅源网址。
+3. **调整打分阈值**：
+   - 可以在 `main.py` 的头部常量区域修改打分权重（如调整 `MIN_PUSH_SCORE` 决定推送的严格程度，调整 `MIN_RULE_SCORE` 决定进入 LLM 判定的门槛）。
+
 ## 目录结构
 
 ```text
