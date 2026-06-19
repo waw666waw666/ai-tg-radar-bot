@@ -39,6 +39,19 @@ python main.py
 1.  在 GitHub 仓库中，进入 `Settings -> Secrets -> Actions` 配置上述环境变量。
 2.  推荐使用外部 Cron 服务（如 `cron-job.org`）向 GitHub Actions 的 `workflow_dispatch` 接口发送 POST 请求，实现自定义频率的定时触发。
 
+## 目录结构
+
+```text
+.
+├── .github/
+│   └── workflows/
+│       └── ai-radar.yml       # GitHub Actions 定时任务工作流
+├── main.py                    # 机器人核心逻辑（数据拉取、双重过滤打分、飞书推送）
+├── requirements.txt           # Python 依赖项列表
+├── seen.json                  # 已推送消息去重缓存（GitOps 自动维护）
+└── README.md                  # 说明文档
+```
+
 ## 许可证
 
 基于 [MIT License](./LICENSE) 协议开源。
